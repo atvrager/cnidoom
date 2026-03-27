@@ -1,5 +1,10 @@
 """PPO training script for the Doom agent."""
 
+import os
+
+# Prevent protobuf MessageFactory errors from tensorflow/tensorboard.
+os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
+
 import argparse
 from pathlib import Path
 

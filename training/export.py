@@ -12,7 +12,13 @@ Usage:
 """
 
 import argparse
+import os
 from pathlib import Path
+
+# Prevent protobuf MessageFactory errors from tensorflow/tensorboard.
+os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
+# Suppress TF CPU instruction set warning (pip TF binary doesn't use AVX/FMA).
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
 
 import numpy as np
 import torch
