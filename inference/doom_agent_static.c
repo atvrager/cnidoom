@@ -11,16 +11,8 @@
 
 #include <string.h>
 
-#include "generated/doom_agent_graph.h"
-
-/* Override AGENT_FRAME_* defaults with actual model dimensions. */
-#ifdef GRAPH_VISUAL_W
-#define AGENT_FRAME_W GRAPH_VISUAL_W
-#define AGENT_FRAME_H GRAPH_VISUAL_H
-#define AGENT_FRAME_STACK GRAPH_VISUAL_C
-#endif
-
 #include "doom_agent.h"
+#include "doom_agent_graph.h"
 
 int tflm_init(void) {
   /* Nothing to initialize — all state is static/const. */

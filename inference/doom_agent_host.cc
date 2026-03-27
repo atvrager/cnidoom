@@ -95,7 +95,8 @@ extern "C" int agent_init_host(const char* model_path) {
   resolver.AddTranspose();
   resolver.AddCast();
   resolver.AddTanh();
-  resolver.AddPad(); /* FP32 model has explicit Pad ops from onnx2tf */
+  resolver.AddMean(); /* V2 model: AdaptiveAvgPool2d → MEAN */
+  resolver.AddPad();  /* FP32 model has explicit Pad ops from onnx2tf */
 
   /* Heap-allocate to avoid static destructor issues when doomgeneric
    * calls exit() — the destructor would run after atexit handlers and

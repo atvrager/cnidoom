@@ -57,9 +57,10 @@ def train(
     n_envs: int = 8,
     cfg_path: str | None = None,
     resume: str | None = None,
-    model_version: str = "baseline",
+    model_version: str = "v2",
     obs_h: int | None = None,
     obs_w: int | None = None,
+    output: str = "doom_agent_ppo",
 ) -> PPO:
     CHECKPOINT_DIR.mkdir(exist_ok=True)
 
@@ -119,8 +120,8 @@ def train(
     ]
 
     model.learn(total_timesteps=total_timesteps, callback=callbacks)
-    model.save("doom_agent_ppo")
-    print("Training complete. Model saved to doom_agent_ppo.zip")
+    model.save(output)
+    print(f"Training complete. Model saved to {output}.zip")
 
     # Close environments so VizDoom subprocesses don't linger.
     env.close()
@@ -144,15 +145,21 @@ def main():
     parser.add_argument(
         "--model-version",
         type=str,
-        default="baseline",
+        default="v2",
         choices=list(MODEL_VERSIONS.keys()),
-        help="Model architecture version (default: baseline)",
+        help="Model architecture version (default: v2)",
     )
     parser.add_argument(
         "--obs-res",
         type=str,
         default=None,
         help="Observation resolution as HxW, e.g. '60x80' (overrides model default)",
+    )
+    parser.add_argument(
+        "--output",
+        type=str,
+        default="doom_agent_ppo",
+        help="Output checkpoint path (without .zip extension)",
     )
     args = parser.parse_args()
 
@@ -169,6 +176,7 @@ def main():
         model_version=args.model_version,
         obs_h=obs_h,
         obs_w=obs_w,
+        output=args.output,
     )
 
 

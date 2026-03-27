@@ -15,7 +15,7 @@
 #include <ctime>
 
 #include "doom_agent.h"
-#include "generated/doom_agent_graph.h"
+#include "doom_agent_graph.h"
 
 /* TFLM headers for reference backend. */
 #include "tensorflow/lite/micro/micro_interpreter.h"
@@ -128,6 +128,7 @@ int main(int argc, char** argv) {
   resolver.AddDequantize();
   resolver.AddTranspose();
   resolver.AddTanh();
+  resolver.AddMean();
 
   tflite::MicroInterpreter interpreter(model, resolver, tensor_arena,
                                        kArenaSize);

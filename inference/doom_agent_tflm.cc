@@ -35,7 +35,7 @@ extern "C" int tflm_init(void) {
   }
 
   /* Register only the ops our model uses. */
-  static tflite::MicroMutableOpResolver<8> resolver;
+  static tflite::MicroMutableOpResolver<12> resolver;
   resolver.AddConv2D();
   resolver.AddDepthwiseConv2D();
   resolver.AddFullyConnected();
@@ -44,6 +44,9 @@ extern "C" int tflm_init(void) {
   resolver.AddLogistic(); /* sigmoid */
   resolver.AddQuantize();
   resolver.AddDequantize();
+  resolver.AddTranspose();
+  resolver.AddTanh();
+  resolver.AddMean();
 
   static tflite::MicroInterpreter static_interpreter(model, resolver,
                                                      tensor_arena, kArenaSize);

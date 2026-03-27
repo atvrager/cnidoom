@@ -29,10 +29,17 @@ extern "C" {
 #define AGENT_NUM_ACTIONS 6
 
 /* Preprocessed frame dimensions.
- * These are the default (baseline) values.  When building with codegen the
- * generated graph header emits GRAPH_VISUAL_H/W/C defines that carry the
- * actual model dimensions — backends should prefer those when available. */
-#ifndef AGENT_FRAME_W
+ * When building with the static codegen backend (-DDOOM_AGENT_STATIC=ON),
+ * the generated graph header provides the actual model dimensions via
+ * GRAPH_VISUAL_H/W/C defines.  All TUs that include this header will
+ * automatically pick up the correct values.
+ * Without codegen, falls back to baseline defaults (45×60, 4-frame stack). */
+#ifdef DOOM_AGENT_USE_GRAPH_DIMS
+#include "doom_agent_graph.h"
+#define AGENT_FRAME_W GRAPH_VISUAL_W
+#define AGENT_FRAME_H GRAPH_VISUAL_H
+#define AGENT_FRAME_STACK GRAPH_VISUAL_C
+#elif !defined(AGENT_FRAME_W)
 #define AGENT_FRAME_W 60
 #define AGENT_FRAME_H 45
 #define AGENT_FRAME_STACK 4

@@ -15,7 +15,7 @@
 #include <time.h>
 
 #include "doom_agent.h"
-#include "generated/doom_agent_graph.h"
+#include "doom_agent_graph.h"
 
 static float vis_scale, st_scale, out_scale;
 static int32_t vis_zp, st_zp, out_zp;

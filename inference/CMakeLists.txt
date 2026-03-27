@@ -184,6 +184,14 @@ if(DOOM_AGENT_STATIC)
     )
     target_link_libraries(doom_agent_static PUBLIC doom_agent_core m)
 
+    # Propagate model dimensions from the generated graph header to all
+    # TUs that use AGENT_FRAME_* (doom_agent_core, doom_agent_preprocess).
+    # The DOOM_AGENT_USE_GRAPH_DIMS define triggers doom_agent.h to
+    # include doom_agent_graph.h and derive the frame constants from it.
+    target_compile_definitions(doom_agent_core PUBLIC DOOM_AGENT_USE_GRAPH_DIMS)
+    target_include_directories(doom_agent_core PUBLIC ${GENERATED_DIR})
+    target_include_directories(doom_agent_preprocess PUBLIC ${GENERATED_DIR})
+
     # Enable AVX2 for x86 kernels.
     if("${DOOM_AGENT_KERNEL_TARGET}" STREQUAL "x86")
         target_compile_options(doom_agent_static PRIVATE -mavx2)
@@ -295,6 +303,7 @@ if(DOOM_AGENT_HOST AND TARGET doom_agent_static)
 
     target_compile_definitions(doom_agent_static_host_bin PRIVATE
         DOOM_AGENT_HOST=1
+        DOOM_AGENT_USE_GRAPH_DIMS
     )
 
     target_include_directories(doom_agent_static_host_bin PRIVATE
@@ -391,6 +400,9 @@ if(DOOM_AGENT_RV32 AND TARGET doom_agent_static)
         ${RV32_PLATFORM_SRCS}
     )
 
+    target_compile_definitions(doom_agent_rv32_bin PRIVATE
+        DOOM_AGENT_USE_GRAPH_DIMS
+    )
     target_include_directories(doom_agent_rv32_bin PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${DOOMGENERIC_DIR}

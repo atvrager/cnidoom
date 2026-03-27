@@ -63,8 +63,12 @@ def _infer_visual_shape(model: InferencePolicy) -> tuple[int, int, int, int]:
     Returns (batch, channels, height, width) in NCHW format.
     """
     extractor = model.features_extractor
-    if hasattr(extractor, "observation_space"):
-        vis_shape = extractor.observation_space["visual"].shape  # (C, H, W)
+    # SB3's BaseFeaturesExtractor stores obs space as _observation_space.
+    # The property is shadowed by nn.Module.__getattr__ after deserialization,
+    # so we check the private attribute directly.
+    obs_space = getattr(extractor, "_observation_space", None)
+    if obs_space is not None and "visual" in obs_space.spaces:
+        vis_shape = obs_space["visual"].shape  # (C, H, W)
         return (1, vis_shape[0], vis_shape[1], vis_shape[2])
     # Fallback for mock/test models: use baseline default.
     return (1, 4, 45, 60)

@@ -22,7 +22,7 @@ cd "$REPO_ROOT"
 
 # Parse flags.
 START_PHASE=1
-MODEL_VERSION="baseline"
+MODEL_VERSION="v2"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --from) START_PHASE="$2"; shift 2 ;;
@@ -32,9 +32,16 @@ while [[ $# -gt 0 ]]; do
 done
 
 SCENARIOS_DIR="training/scenarios"
-CHECKPOINT="doom_agent_ppo.zip"
+
+# Version-specific checkpoint so baseline and V2 don't overwrite each other.
+if [[ "$MODEL_VERSION" == "baseline" ]]; then
+    CHECKPOINT="doom_agent_ppo"
+else
+    CHECKPOINT="doom_agent_${MODEL_VERSION}_ppo"
+fi
 
 echo "Model version: $MODEL_VERSION"
+echo "Checkpoint:    ${CHECKPOINT}.zip"
 
 run_phase() {
     local phase="$1" cfg="$2" steps="$3" desc="$4"
@@ -46,8 +53,8 @@ run_phase() {
     echo ""
 
     local resume_flag=""
-    if [[ -f "$CHECKPOINT" ]]; then
-        resume_flag="--resume $CHECKPOINT"
+    if [[ -f "${CHECKPOINT}.zip" ]]; then
+        resume_flag="--resume ${CHECKPOINT}.zip"
     fi
 
     uv run python -m training.train \
@@ -55,6 +62,7 @@ run_phase() {
         --timesteps "$steps" \
         --envs 8 \
         --model-version "$MODEL_VERSION" \
+        --output "$CHECKPOINT" \
         $resume_flag
 }
 
@@ -80,8 +88,8 @@ fi
 
 echo ""
 echo "================================================================"
-echo "  Curriculum complete! Final model: $CHECKPOINT"
+echo "  Curriculum complete! Final model: ${CHECKPOINT}.zip"
 echo "================================================================"
 echo ""
 echo "Next steps:"
-echo "  scripts/export.sh $CHECKPOINT"
+echo "  scripts/export.sh ${CHECKPOINT}.zip"
