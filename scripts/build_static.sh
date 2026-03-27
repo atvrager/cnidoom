@@ -185,12 +185,12 @@ if [[ "$TARGET" == "rv32" && -f "$BUILD_DIR/libcnidoom.a" ]]; then
     # libcnidoom.a has the engine + glue, but the agent inference chain
     # spans doom_agent_static → doom_agent_core → doom_agent_preprocess.
     # Extract all .o files and re-archive into one libcnidoom.a.
-    AR="${AR:-$(find "$BUILD_DIR" -path '*/CMakeFiles' -prune -o -name 'riscv32-*-ar' -print 2>/dev/null | head -1)}"
-    if [[ -z "$AR" ]]; then
-        # Fall back: read AR from CMake cache.
-        AR="$(grep CMAKE_AR "$BUILD_DIR/CMakeCache.txt" | cut -d= -f2)"
+    if [[ -z "${AR:-}" ]]; then
+        AR="$(grep '^CMAKE_C_COMPILER_AR:' "$BUILD_DIR/CMakeCache.txt" | cut -d= -f2)"
     fi
-    RANLIB="${RANLIB:-${AR/%ar/ranlib}}"
+    if [[ -z "${RANLIB:-}" ]]; then
+        RANLIB="$(grep '^CMAKE_C_COMPILER_RANLIB:' "$BUILD_DIR/CMakeCache.txt" | cut -d= -f2)"
+    fi
 
     MERGE_TMP="$(mktemp -d)"
     trap 'rm -rf "$MERGE_TMP"' EXIT
@@ -252,7 +252,6 @@ OBJS := startup.o $(SRCS:.c=.o)
 
 firmware.elf: $(OBJS)
 	$(CC) $(LDFLAGS) -Tlinker.ld $^ $(CNIDOOM_LDFLAGS) -o $@
-	@echo "Built $@ ($(shell $(CROSS)size $@ | tail -1 | awk '{print $$1}') bytes text)"
 
 %.o: %.S
 	$(AS) $(ASFLAGS) -c $< -o $@
