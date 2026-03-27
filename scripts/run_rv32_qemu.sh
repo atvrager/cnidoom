@@ -39,7 +39,6 @@ fi
 echo "Starting RISC-V Doom agent in QEMU..."
 echo "  ELF: $ELF"
 echo "  Display: ramfb (SDL)"
-echo "  WAD: wads/DOOM1.WAD (via semihosting)"
 echo ""
 echo "Press Ctrl-A X to exit QEMU."
 
