@@ -137,6 +137,33 @@ uint32_t DG_GetTickCount(void) {
   return (uint32_t)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
 }
 
+uint32_t DG_GetTicksMs(void) {
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (uint32_t)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+}
+
+void DG_SleepMs(uint32_t ms) {
+  struct timespec ts;
+  ts.tv_sec = ms / 1000;
+  ts.tv_nsec = (ms % 1000) * 1000000L;
+  nanosleep(&ts, NULL);
+}
+
 void DG_SetWindowTitle(const char* title) {
   (void)title; /* No window in headless agent mode. */
+}
+
+/* ------------------------------------------------------------------ */
+/* Entry point                                                        */
+/* ------------------------------------------------------------------ */
+
+int main(int argc, char** argv) {
+  doomgeneric_Create(argc, argv);
+
+  for (;;) {
+    doomgeneric_Tick();
+  }
+
+  return 0;
 }

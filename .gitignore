@@ -229,6 +229,9 @@ wads/
 # VizDoom runtime config
 _vizdoom.ini
 
+# Code-generated inference engine (regenerated from model)
+inference/generated/
+
 # C build artifacts
 *.o
 *.a

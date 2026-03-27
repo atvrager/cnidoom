@@ -9,6 +9,12 @@ set(CMAKE_CXX_STANDARD 17)
 # --------------------------------------------------------------------------
 option(DOOM_AGENT_BUILD_TESTS "Build unit tests for inference code" ON)
 option(DOOM_AGENT_HOST "Build host inference engine (TFLM + SDL2)" OFF)
+option(DOOM_AGENT_STATIC "Build static code-generated inference backend" OFF)
+
+set(DOOM_AGENT_KERNEL_TARGET "generic" CACHE STRING
+    "Kernel target: generic, x86, riscv")
+set(DOOM_AGENT_MODEL "${CMAKE_SOURCE_DIR}/../models/doom_agent_int8.tflite"
+    CACHE FILEPATH "Path to INT8 TFLite model for codegen")
 
 set(DOOMGENERIC_DIR "${CMAKE_SOURCE_DIR}/../doomgeneric/doomgeneric"
     CACHE PATH "Path to doomgeneric source directory")
@@ -119,6 +125,69 @@ if(TFLM_LIB)
 endif()
 
 # --------------------------------------------------------------------------
+# Static code-generated inference backend
+# --------------------------------------------------------------------------
+if(DOOM_AGENT_STATIC)
+    set(GENERATED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/generated")
+
+    # Codegen: generate C source from TFLite model.
+    set(CODEGEN_SCRIPT "${CMAKE_SOURCE_DIR}/../tools/codegen_graph.py")
+    set(GEN_GRAPH_C "${GENERATED_DIR}/doom_agent_graph.c")
+    set(GEN_GRAPH_H "${GENERATED_DIR}/doom_agent_graph.h")
+    set(GEN_WEIGHTS_C "${GENERATED_DIR}/doom_agent_weights.c")
+    set(GEN_WEIGHTS_H "${GENERATED_DIR}/doom_agent_weights.h")
+
+    add_custom_command(
+        OUTPUT ${GEN_GRAPH_C} ${GEN_GRAPH_H} ${GEN_WEIGHTS_C} ${GEN_WEIGHTS_H}
+        COMMAND ${CMAKE_COMMAND} -E env
+            PYTHONPATH=${CMAKE_SOURCE_DIR}/../tflite-micro
+            uv run python ${CODEGEN_SCRIPT}
+                --model ${DOOM_AGENT_MODEL}
+                --output-dir ${GENERATED_DIR}
+        DEPENDS ${CODEGEN_SCRIPT} ${DOOM_AGENT_MODEL}
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/..
+        COMMENT "Generating static inference engine from ${DOOM_AGENT_MODEL}"
+    )
+
+    # Collect kernel sources.  Target-specific files override generic ones.
+    file(GLOB GENERIC_KERNEL_SRCS "kernels/generic/*.c")
+    set(KERNEL_SRCS ${GENERIC_KERNEL_SRCS})
+
+    if(NOT "${DOOM_AGENT_KERNEL_TARGET}" STREQUAL "generic")
+        file(GLOB TARGET_KERNEL_SRCS
+            "kernels/${DOOM_AGENT_KERNEL_TARGET}/*.c")
+        foreach(TARGET_SRC ${TARGET_KERNEL_SRCS})
+            get_filename_component(TARGET_NAME ${TARGET_SRC} NAME)
+            # Remove the generic file with the same name.
+            list(FILTER KERNEL_SRCS EXCLUDE REGEX "/${TARGET_NAME}$")
+            list(APPEND KERNEL_SRCS ${TARGET_SRC})
+        endforeach()
+        message(STATUS "Kernel target: ${DOOM_AGENT_KERNEL_TARGET} "
+                "(${TARGET_KERNEL_SRCS})")
+    else()
+        message(STATUS "Kernel target: generic (reference C)")
+    endif()
+
+    # Static inference library.
+    add_library(doom_agent_static STATIC
+        doom_agent_static.c
+        ${GEN_GRAPH_C}
+        ${GEN_WEIGHTS_C}
+        ${KERNEL_SRCS}
+    )
+    target_include_directories(doom_agent_static PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${GENERATED_DIR}
+    )
+    target_link_libraries(doom_agent_static PUBLIC doom_agent_core m)
+
+    # Enable AVX2 for x86 kernels.
+    if("${DOOM_AGENT_KERNEL_TARGET}" STREQUAL "x86")
+        target_compile_options(doom_agent_static PRIVATE -mavx2)
+    endif()
+endif()
+
+# --------------------------------------------------------------------------
 # Full agent binary — bare metal / headless (doomgeneric + TFLM + compiled-in model)
 # --------------------------------------------------------------------------
 if(EXISTS "${DOOMGENERIC_DIR}/doomgeneric.h" AND TARGET doom_agent_tflm)
@@ -137,7 +206,7 @@ if(EXISTS "${DOOMGENERIC_DIR}/doomgeneric.h" AND TARGET doom_agent_tflm)
         target_sources(doom_agent_bin PRIVATE ${MODEL_DATA})
     else()
         message(WARNING "Model data not found at ${MODEL_DATA} — "
-                "run: xxd -i models/doom_agent_int8.tflite > models/doom_agent_model.c")
+                "run: xxd -i -n doom_agent_model models/doom_agent_int8.tflite > models/doom_agent_model.c")
     endif()
 
     target_include_directories(doom_agent_bin PRIVATE ${DOOMGENERIC_DIR})
@@ -207,6 +276,45 @@ if(DOOM_AGENT_HOST)
 endif()
 
 # --------------------------------------------------------------------------
+# Static host binary (SDL2 + static code-generated backend — no TFLM)
+# --------------------------------------------------------------------------
+if(DOOM_AGENT_HOST AND TARGET doom_agent_static)
+    # Reuse the doomgeneric sources collected for the TFLM host above.
+    add_executable(doom_agent_static_host_bin
+        doomgeneric_agent_sdl.c
+        doom_agent_static_host.c
+        doom_agent_preprocess.c
+        golden_log.c
+        ${HOST_DOOM_SRCS}
+    )
+
+    target_compile_definitions(doom_agent_static_host_bin PRIVATE
+        DOOM_AGENT_HOST=1
+    )
+
+    target_include_directories(doom_agent_static_host_bin PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${GENERATED_DIR}
+        ${DOOMGENERIC_DIR}
+        ${SDL2_INCLUDE_DIRS}
+    )
+
+    target_link_libraries(doom_agent_static_host_bin PRIVATE
+        doom_agent_static
+        ${SDL2_LIBRARIES}
+        m pthread
+    )
+
+    if("${DOOM_AGENT_KERNEL_TARGET}" STREQUAL "x86")
+        target_compile_options(doom_agent_static_host_bin PRIVATE -mavx2)
+    endif()
+
+    set_target_properties(doom_agent_static_host_bin PROPERTIES
+        OUTPUT_NAME doom_agent_static_host
+    )
+endif()
+
+# --------------------------------------------------------------------------
 # Tests (CTest)
 # --------------------------------------------------------------------------
 if(DOOM_AGENT_BUILD_TESTS)
@@ -219,4 +327,33 @@ if(DOOM_AGENT_BUILD_TESTS)
     add_executable(test_quantize test_quantize.c)
     target_link_libraries(test_quantize PRIVATE doom_agent_preprocess m)
     add_test(NAME quantize COMMAND test_quantize)
+
+    # Static vs TFLM byte-identical comparison test.
+    if(TARGET doom_agent_static AND TFLM_LIB)
+        add_executable(test_static_vs_tflm test_static_vs_tflm.cc)
+        target_include_directories(test_static_vs_tflm PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}
+            ${GENERATED_DIR}
+            ${TFLM_INCLUDE_DIRS}
+        )
+        target_compile_definitions(test_static_vs_tflm PRIVATE
+            TF_LITE_STATIC_MEMORY
+        )
+        target_link_libraries(test_static_vs_tflm PRIVATE
+            doom_agent_static
+            ${TFLM_LIB}
+            m pthread
+        )
+        if("${DOOM_AGENT_KERNEL_TARGET}" STREQUAL "x86")
+            target_compile_options(test_static_vs_tflm PRIVATE -mavx2)
+        endif()
+        set_target_properties(test_static_vs_tflm PROPERTIES
+            OUTPUT_NAME test_static_vs_tflm
+        )
+        add_test(
+            NAME static_vs_tflm
+            COMMAND test_static_vs_tflm
+                --model ${DOOM_AGENT_MODEL} --trials 100
+        )
+    endif()
 endif()
