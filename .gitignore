@@ -223,6 +223,7 @@ __marimo__/
 models/
 tb_doom/
 checkpoints/
+wads/
 
 # C build artifacts
 *.o

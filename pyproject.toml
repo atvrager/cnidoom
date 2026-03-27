@@ -9,6 +9,7 @@ dependencies = [
     "gymnasium>=1.0",
     "numpy>=1.26",
     "torch>=2.2",
+    "onnxscript>=0.1",
     "tensorboard>=2.16",
 ]
 
