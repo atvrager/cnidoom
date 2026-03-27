@@ -73,22 +73,16 @@ def train(
         net_arch=ver["net_arch"],
     )
 
+    env = make_vec_env(
+        make_env(cfg_path, obs_h=obs_h, obs_w=obs_w),
+        n_envs=n_envs,
+        vec_env_cls=SubprocVecEnv,
+    )
+
     if resume:
         print(f"Resuming from {resume}")
-        model = PPO.load(
-            resume,
-            env=make_vec_env(
-                make_env(cfg_path, obs_h=obs_h, obs_w=obs_w),
-                n_envs=n_envs,
-                vec_env_cls=SubprocVecEnv,
-            ),
-        )
+        model = PPO.load(resume, env=env)
     else:
-        env = make_vec_env(
-            make_env(cfg_path, obs_h=obs_h, obs_w=obs_w),
-            n_envs=n_envs,
-            vec_env_cls=SubprocVecEnv,
-        )
         model = PPO(
             "MultiInputPolicy",
             env,
