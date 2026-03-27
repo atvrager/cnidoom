@@ -78,6 +78,22 @@ Each `DWSepConv` block: depthwise 3&times;3 &rarr; pointwise 1&times;1
 the feature vector from 1536 to 192 and eliminating the TRANSPOSE &rarr;
 RESHAPE sequence in the exported graph.
 
+### Model stats
+
+|  | Baseline | V2 |
+|--|----------|-----|
+| Parameters | 401K | 149K |
+| MACs per inference | 0.67M | 5.0M |
+| INT8 TFLite size | ~390 KB | 202 KB |
+| Scratch buffer | ~14 KB | 53 KB |
+| Visual input | 45&times;60&times;4 | 60&times;80&times;4 |
+| Feature dim | 256 | 128 |
+| Inference (QEMU rv32) | &mdash; | ~1030 ms |
+
+V2 trades 7.5&times; more MACs for 2.7&times; fewer parameters (GAP
+eliminates the large flatten&rarr;FC weight matrix). The smaller weight
+footprint matters more than MAC count on memory-constrained targets.
+
 ### Observation space
 
 | Input | Shape | Description |
