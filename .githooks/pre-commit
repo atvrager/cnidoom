@@ -89,6 +89,19 @@ if [[ -n "$c_files" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# 5. Tests (pytest via uv)
+# ---------------------------------------------------------------------------
+if [[ -n "$py_files" ]]; then
+    if command -v uv &>/dev/null; then
+        if ! uv run python -m pytest tests/ -q 2>&1; then
+            fail "pytest failed"
+        fi
+    else
+        warn "uv not found — skipping tests"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # Exit
 # ---------------------------------------------------------------------------
 if (( FAIL )); then
