@@ -225,6 +225,9 @@ tb_doom/
 checkpoints/
 wads/
 
+# VizDoom runtime config
+_vizdoom.ini
+
 # C build artifacts
 *.o
 *.a
