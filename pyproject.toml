@@ -1,0 +1,43 @@
+[project]
+name = "cnidoom"
+version = "0.1.0"
+description = "RL agent for Doom: PPO training, INT8 TFLite export, doomgeneric inference"
+requires-python = ">=3.11"
+dependencies = [
+    "vizdoom>=1.2.3",
+    "stable-baselines3[extra]>=2.3",
+    "gymnasium>=1.0",
+    "numpy>=1.26",
+    "torch>=2.2",
+    "tensorboard>=2.16",
+]
+
+[project.optional-dependencies]
+export = [
+    "onnx>=1.16",
+    "onnx2tf>=1.25",
+    "tensorflow>=2.16",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["training"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

@@ -38,7 +38,12 @@ fi
 # 2. Size gate (50 KB = 51200 bytes)
 # ---------------------------------------------------------------------------
 MAX_BYTES=51200
+SIZE_EXEMPT='(\.lock|package-lock\.json)$'
 while IFS= read -r file; do
+    # Skip lock files — they're large by nature and meant to be committed.
+    if [[ "$file" =~ $SIZE_EXEMPT ]]; then
+        continue
+    fi
     # Get the staged blob hash, then query its size.
     blob=$(git ls-files -s "$file" | awk '{print $2}')
     if [[ -n "$blob" ]]; then
