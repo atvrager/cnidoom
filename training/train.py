@@ -65,6 +65,7 @@ def train(
             clip_range=0.2,
             ent_coef=0.01,
             verbose=1,
+            device="auto",
             tensorboard_log=str(TB_LOG_DIR),
         )
 
