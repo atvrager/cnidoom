@@ -19,8 +19,9 @@
 #include "tensorflow/lite/micro/micro_mutable_op_resolver.h"
 #include "tensorflow/lite/schema/schema_generated.h"
 
-/* Larger arena for host — memory is cheap on x86. */
-static constexpr int kArenaSize = 256 * 1024;
+/* Larger arena for host — memory is cheap on x86.
+ * FP32 models need ~4x more activation memory than INT8. */
+static constexpr int kArenaSize = 1024 * 1024;
 static uint8_t tensor_arena[kArenaSize];
 
 /* Model data loaded from file. */
@@ -94,6 +95,7 @@ extern "C" int agent_init_host(const char* model_path) {
   resolver.AddTranspose();
   resolver.AddCast();
   resolver.AddTanh();
+  resolver.AddPad(); /* FP32 model has explicit Pad ops from onnx2tf */
 
   /* Heap-allocate to avoid static destructor issues when doomgeneric
    * calls exit() — the destructor would run after atexit handlers and

@@ -69,11 +69,6 @@ def export_onnx(model: InferencePolicy, onnx_path: Path) -> None:
         input_names=["visual", "state"],
         output_names=["action_probs"],
         opset_version=18,
-        dynamic_axes={
-            "visual": {0: "batch"},
-            "state": {0: "batch"},
-            "action_probs": {0: "batch"},
-        },
     )
     print(f"ONNX model saved to {onnx_path}")
 
@@ -130,6 +125,7 @@ def onnx_to_saved_model(onnx_path: Path, saved_model_dir: Path) -> None:
         output_folder_path=str(saved_model_dir),
         non_verbose=True,
         copy_onnx_input_output_names_to_tflite=True,
+        batch_size=1,
     )
     print(f"TF SavedModel saved to {saved_model_dir}")
 
@@ -241,6 +237,26 @@ def quantize_tflite(
     tflite_path.write_bytes(tflite_model)
     size_kb = len(tflite_model) / 1024
     print(f"INT8 TFLite model saved to {tflite_path} ({size_kb:.1f} KB)")
+    return tflite_model
+
+
+def quantize_tflite_fp16(
+    saved_model_dir: Path,
+    tflite_path: Path,
+) -> bytes:
+    """Convert TF SavedModel to FP16 TFLite (float16 weights, float32 compute)."""
+    import tensorflow as tf
+
+    converter = tf.lite.TFLiteConverter.from_saved_model(str(saved_model_dir))
+    converter.optimizations = [tf.lite.Optimize.DEFAULT]
+    converter.target_spec.supported_types = [tf.float16]
+
+    tflite_model = converter.convert()
+
+    tflite_path.parent.mkdir(parents=True, exist_ok=True)
+    tflite_path.write_bytes(tflite_model)
+    size_kb = len(tflite_model) / 1024
+    print(f"FP16 TFLite model saved to {tflite_path} ({size_kb:.1f} KB)")
     return tflite_model
 
 
@@ -400,15 +416,24 @@ def main():
             Path(args.calibration_data),
         )
 
-    # 5. Quantize to INT8 TFLite.
+    # 5. Export clean FP32 and FP16 TFLite from SavedModel.
+    fp32_tflite = out / "doom_agent_fp32.tflite"
+    fp16_tflite = out / "doom_agent_fp16.tflite"
     print("\n" + "=" * 60)
-    print("Step 5: Quantizing to INT8 TFLite")
+    print("Step 5: Exporting FP32 and FP16 TFLite")
+    print("=" * 60)
+    quantize_tflite(saved_model_dir, fp32_tflite, None)
+    quantize_tflite_fp16(saved_model_dir, fp16_tflite)
+
+    # 6. Quantize to INT8 TFLite.
+    print("\n" + "=" * 60)
+    print("Step 6: Quantizing to INT8 TFLite")
     print("=" * 60)
     quantize_tflite(saved_model_dir, tflite_path, representative_data)
 
-    # 6. Verify.
+    # 7. Verify.
     print("\n" + "=" * 60)
-    print("Step 6: Verification")
+    print("Step 7: Verification")
     print("=" * 60)
     verify_no_batchnorm(tflite_path)
 
@@ -416,8 +441,8 @@ def main():
         verify_int8_vs_fp32(args.checkpoint, tflite_path)
 
     # Summary.
-    fp32_tflite = saved_model_dir / "doom_agent_float32.tflite"
     fp32_size = fp32_tflite.stat().st_size / 1024 if fp32_tflite.exists() else 0
+    fp16_size = fp16_tflite.stat().st_size / 1024 if fp16_tflite.exists() else 0
     int8_size = tflite_path.stat().st_size / 1024
 
     quant_mode = "full-integer" if representative_data else "dynamic-range"
@@ -425,6 +450,7 @@ def main():
     print("Export complete!")
     print(f"  ONNX:        {onnx_path}")
     print(f"  FP32 TFLite: {fp32_tflite} ({fp32_size:.1f} KB)")
+    print(f"  FP16 TFLite: {fp16_tflite} ({fp16_size:.1f} KB)")
     print(f"  INT8 TFLite: {tflite_path} ({int8_size:.1f} KB) [{quant_mode}]")
     print(f"  Compression: {fp32_size / int8_size:.1f}x" if int8_size else "")
     print("=" * 60)
