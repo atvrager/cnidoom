@@ -43,6 +43,7 @@ class DoomHybridEnv(gym.Env):
         self.game = vzd.DoomGame()
         if cfg_path is not None:
             self.game.load_config(str(cfg_path))
+            self._resolve_scenario_wad(cfg_path)
         else:
             self._configure_defaults()
         self.game.set_window_visible(False)
@@ -64,6 +65,26 @@ class DoomHybridEnv(gym.Env):
 
         # Reward shaping bookkeeping.
         self._prev_vars: dict[str, float] = {}
+
+    # ------------------------------------------------------------------
+    # WAD resolution
+    # ------------------------------------------------------------------
+
+    def _resolve_scenario_wad(self, cfg_path: str | Path) -> None:
+        """Resolve the scenario WAD path from VizDoom's bundled scenarios.
+
+        VizDoom resolves doom_scenario_path relative to the .cfg file's
+        directory. If the WAD doesn't exist there, try VizDoom's bundled
+        scenarios directory as a fallback.
+        """
+        cfg_dir = Path(cfg_path).resolve().parent
+        wad_name = Path(self.game.get_doom_scenario_path()).name
+        local_wad = cfg_dir / wad_name
+        if local_wad.exists():
+            return
+        bundled_wad = Path(vzd.__file__).parent / "scenarios" / wad_name
+        if bundled_wad.exists():
+            self.game.set_doom_scenario_path(str(bundled_wad))
 
     # ------------------------------------------------------------------
     # Default VizDoom configuration (used when no .cfg file is provided)
