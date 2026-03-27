@@ -12,10 +12,10 @@
  * permissions match the real target — only base addresses differ.
  *
  * Section placement:
- *   ITCM: .text                (inference kernels + Doom engine code)
- *   DTCM: .data, .sdata, stack (hot working memory)
- *   SRAM: .rodata, .bss, heap  (model weights, engine state, Z_Malloc)
- *   DDR:  (WAD data, ramfb — not yet embedded)
+ *   ITCM: .text                 (inference kernels + Doom engine code)
+ *   DTCM: .data, .sdata, stack  (hot working memory)
+ *   SRAM: .rodata, .bss         (model weights, engine state)
+ *   DDR:  .wad, heap             (embedded WAD, Z_Malloc zone)
  */
 
 ENTRY(_start)
@@ -57,7 +57,7 @@ SECTIONS
     __stack_top = ORIGIN(DTCM) + LENGTH(DTCM);
     __stack_bottom = __stack_top - __stack_size;
 
-    /* ── SRAM: uninitialized data + heap ───────────────────────── */
+    /* ── SRAM: uninitialized data ──────────────────────────────── */
 
     .bss (NOLOAD) : ALIGN(4) {
         __bss_start = .;
@@ -68,16 +68,17 @@ SECTIONS
         __bss_end = .;
     } > SRAM
 
+    /* ── DDR: embedded WAD + heap ──────────────────────────────── */
+
+    .wad : ALIGN(4) {
+        KEEP(*(.wad .wad.*))
+    } > DDR
+
+    /* Heap lives in DDR after the WAD — plenty of room for Doom's
+     * Z_Malloc zone (~6 MB) and other runtime allocations. */
     . = ALIGN(8);
     __heap_start = .;
-    __heap_end = ORIGIN(SRAM) + LENGTH(SRAM);
-
-    /* ── DDR: bulk storage (WAD, framebuffer — future use) ─────── */
-
-    /* Currently unused.  When the WAD is embedded as a const blob,
-     * place it here:
-     *   .wad : { KEEP(*(.wad .wad.*)) } > DDR
-     */
+    __heap_end = ORIGIN(DDR) + LENGTH(DDR);
 
     /DISCARD/ : {
         *(.eh_frame .eh_frame_hdr)

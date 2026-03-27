@@ -16,6 +16,8 @@ set(DOOM_AGENT_KERNEL_TARGET "generic" CACHE STRING
     "Kernel target: generic, x86, riscv")
 set(DOOM_AGENT_MODEL "${CMAKE_SOURCE_DIR}/../models/doom_agent_int8.tflite"
     CACHE FILEPATH "Path to INT8 TFLite model for codegen")
+set(DOOM_AGENT_EMBED_WAD "${CMAKE_SOURCE_DIR}/../wads/DOOM1.WAD"
+    CACHE FILEPATH "WAD file to embed in the binary (empty = use semihosting)")
 
 set(DOOMGENERIC_DIR "${CMAKE_SOURCE_DIR}/../doomgeneric/doomgeneric"
     CACHE PATH "Path to doomgeneric source directory")
@@ -332,6 +334,42 @@ if(DOOM_AGENT_RV32 AND TARGET doom_agent_static)
     list(FILTER RV32_DOOM_SRCS EXCLUDE REGEX "i_sdlmusic\\.c$")
     list(FILTER RV32_DOOM_SRCS EXCLUDE REGEX "i_sdlsound\\.c$")
 
+    # Embedded WAD: convert the WAD binary into a linkable .o with a
+    # .wad section (placed in DDR by the linker script).  Replaces
+    # semihosting file I/O with a const-blob memory-mapped backend.
+    set(RV32_WAD_SRCS "")
+    if(DOOM_AGENT_EMBED_WAD AND EXISTS "${DOOM_AGENT_EMBED_WAD}")
+        set(EMBEDDED_WAD_OBJ "${CMAKE_CURRENT_BINARY_DIR}/embedded_wad.o")
+
+        add_custom_command(
+            OUTPUT ${EMBEDDED_WAD_OBJ}
+            COMMAND ${CMAKE_COMMAND} -E copy
+                "${DOOM_AGENT_EMBED_WAD}"
+                "${CMAKE_CURRENT_BINARY_DIR}/embedded_wad.bin"
+            COMMAND ${CMAKE_OBJCOPY}
+                -I binary -O elf32-littleriscv -B riscv
+                --rename-section .data=.wad,alloc,load,readonly,data,contents
+                --redefine-sym _binary_embedded_wad_bin_start=_embedded_wad_start
+                --redefine-sym _binary_embedded_wad_bin_end=_embedded_wad_end
+                --redefine-sym _binary_embedded_wad_bin_size=_embedded_wad_size
+                embedded_wad.bin "${EMBEDDED_WAD_OBJ}"
+            WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+            DEPENDS "${DOOM_AGENT_EMBED_WAD}"
+            COMMENT "Embedding WAD: ${DOOM_AGENT_EMBED_WAD}"
+        )
+
+        # Replace stdc file I/O with our memory-mapped embedded backend.
+        list(FILTER RV32_DOOM_SRCS EXCLUDE REGEX "w_file_stdc\\.c$")
+        set(RV32_WAD_SRCS
+            "${CMAKE_CURRENT_SOURCE_DIR}/w_file_embedded.c"
+            "${EMBEDDED_WAD_OBJ}"
+        )
+
+        message(STATUS "Embedded WAD: ${DOOM_AGENT_EMBED_WAD}")
+    else()
+        message(STATUS "WAD: semihosting (no embedded WAD)")
+    endif()
+
     # Platform support sources (startup, UART, syscalls, ramfb).
     set(RV32_PLATFORM_DIR "${CMAKE_CURRENT_SOURCE_DIR}/platform/rv32")
     set(RV32_PLATFORM_SRCS
@@ -347,6 +385,7 @@ if(DOOM_AGENT_RV32 AND TARGET doom_agent_static)
     add_executable(doom_agent_rv32_bin
         doomgeneric_agent_rv32.c
         ${RV32_DOOM_SRCS}
+        ${RV32_WAD_SRCS}
         ${RV32_PLATFORM_SRCS}
     )
 
@@ -372,10 +411,10 @@ if(DOOM_AGENT_RV32 AND TARGET doom_agent_static)
         -Wl,--no-warn-rwx-segments
         -Wl,--Map=$<TARGET_FILE_DIR:doom_agent_rv32_bin>/doom_agent_rv32.map
     )
-
     set_target_properties(doom_agent_rv32_bin PROPERTIES
         OUTPUT_NAME doom_agent_rv32
         SUFFIX ".elf"
+        LINK_DEPENDS ${RV32_LINKER_SCRIPT}
     )
 
     message(STATUS "RISC-V 32-bit target enabled (QEMU virt, ramfb display)")
@@ -407,6 +446,7 @@ if(DOOM_AGENT_RV32 AND TARGET doom_agent_static)
         set_target_properties(test_rvv_bitexact PROPERTIES
             OUTPUT_NAME test_rvv_bitexact
             SUFFIX ".elf"
+            LINK_DEPENDS ${RV32_LINKER_SCRIPT}
         )
 
         # CTest integration: run under QEMU with a 60-second timeout.
