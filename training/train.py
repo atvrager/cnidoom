@@ -95,6 +95,11 @@ def train(
     model.learn(total_timesteps=total_timesteps, callback=callbacks)
     model.save("doom_agent_ppo")
     print("Training complete. Model saved to doom_agent_ppo.zip")
+
+    # Close environments so VizDoom subprocesses don't linger.
+    env.close()
+    eval_env.close()
+
     return model
 
 
