@@ -59,17 +59,17 @@ done < <(staged_files)
 # ---------------------------------------------------------------------------
 py_files=$(staged_by_ext '\.py$')
 if [[ -n "$py_files" ]]; then
-    if command -v ruff &>/dev/null; then
+    if command -v uvx &>/dev/null; then
         # shellcheck disable=SC2086
-        if ! ruff check --force-exclude $py_files; then
+        if ! uvx ruff check --force-exclude $py_files; then
             fail "ruff check failed"
         fi
         # shellcheck disable=SC2086
-        if ! ruff format --check --force-exclude $py_files; then
+        if ! uvx ruff format --check --force-exclude $py_files; then
             fail "ruff format check failed"
         fi
     else
-        warn "ruff not found — skipping Python lint"
+        warn "uvx not found — skipping Python lint (install uv)"
     fi
 fi
 

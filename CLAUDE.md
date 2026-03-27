@@ -47,7 +47,7 @@ cmake --build build
 
 ## Code style
 
-- **Python**: ruff defaults (lint + format). Run `ruff check` and `ruff format --check`.
+- **Python**: ruff defaults (lint + format). Run via `uvx ruff check` and `uvx ruff format --check`.
 - **C/C++**: Google style via clang-format (see `.clang-format`).
 - **Commits**: strict conventional commits — `type(scope): description`. Types: feat, fix, chore, docs, refactor, test, ci, build, perf, style.
 
