@@ -9,7 +9,7 @@ WAD_DIR="$REPO_ROOT/wads"
 WAD_PATH="$WAD_DIR/DOOM1.WAD"
 
 DOOM_SW_URL="https://distro.ibiblio.org/slitaz/sources/packages/d/doom1.wad"
-SHA256="f0cefca49926d00903cf57551d901ebe915877055b1993e6f3d91c127a20f69f"
+SHA256="1d7d43be501e67d927e415e0b8f3e29c3bf33075e859721816f652a526cac771"
 
 if [[ -f "$WAD_PATH" ]]; then
     echo "DOOM1.WAD already exists at $WAD_PATH"
