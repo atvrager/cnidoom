@@ -24,7 +24,7 @@
 #include "doomstat.h" /* players[], consoleplayer */
 
 /* ------------------------------------------------------------------ */
-/* CLINT timer — QEMU virt riscv32                                    */
+/* CLINT timer — QEMU virt riscv32 (wall clock for game timing)       */
 /* ------------------------------------------------------------------ */
 
 /*
@@ -51,6 +51,11 @@ static uint64_t read_mtime(void) {
 static uint32_t mtime_to_ms(uint64_t ticks) {
   return (uint32_t)(ticks / (MTIME_FREQ / 1000));
 }
+
+/* Note: mcycle/minstret CSRs are NOT useful under QEMU — it inflates
+ * minstret by vl for each vector instruction, making RVV appear 10×
+ * worse than scalar.  Use mtime (wall clock) for QEMU, and real HW
+ * counters only on physical silicon. */
 
 /* ------------------------------------------------------------------ */
 /* Action repeat & key event queue (same pattern as doomgeneric_agent) */

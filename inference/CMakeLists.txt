@@ -379,6 +379,53 @@ if(DOOM_AGENT_RV32 AND TARGET doom_agent_static)
     )
 
     message(STATUS "RISC-V 32-bit target enabled (QEMU virt, ramfb display)")
+
+    # RVV vs generic bit-accuracy test (bare-metal, runs under QEMU).
+    if("${DOOM_AGENT_KERNEL_TARGET}" STREQUAL "riscv")
+        set(RV32_TEST_PLATFORM_SRCS
+            ${RV32_PLATFORM_DIR}/startup.S
+            ${RV32_PLATFORM_DIR}/syscalls.c
+            ${RV32_PLATFORM_DIR}/uart.c
+        )
+
+        add_executable(test_rvv_bitexact
+            test_rvv_bitexact.c
+            test_rvv_generic_kernels.c
+            ${RV32_TEST_PLATFORM_SRCS}
+        )
+        target_include_directories(test_rvv_bitexact PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}
+        )
+        target_link_libraries(test_rvv_bitexact PRIVATE
+            doom_agent_static
+            -lc -lm -lgcc
+        )
+        target_link_options(test_rvv_bitexact PRIVATE
+            -T${RV32_LINKER_SCRIPT}
+            -Wl,--no-warn-rwx-segments
+        )
+        set_target_properties(test_rvv_bitexact PROPERTIES
+            OUTPUT_NAME test_rvv_bitexact
+            SUFFIX ".elf"
+        )
+
+        # CTest integration: run under QEMU with a 60-second timeout.
+        find_program(QEMU_RV32 qemu-system-riscv32)
+        if(QEMU_RV32)
+            add_test(
+                NAME rvv_bitexact
+                COMMAND ${QEMU_RV32}
+                    -machine virt
+                    -cpu rv32,v=true,vlen=128,zve32f=true
+                    -m 128M
+                    -nographic
+                    -bios none
+                    -semihosting-config enable=on,target=native
+                    -kernel $<TARGET_FILE:test_rvv_bitexact>
+            )
+            set_tests_properties(rvv_bitexact PROPERTIES TIMEOUT 60)
+        endif()
+    endif()
 endif()
 
 # --------------------------------------------------------------------------

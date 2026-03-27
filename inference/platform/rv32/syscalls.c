@@ -215,8 +215,14 @@ int _fstat(int fd, struct stat* st) {
 int _isatty(int fd) { return (fd <= 2) ? 1 : 0; }
 
 void _exit(int status) {
-  long args[2] = {0x20026 /* ADP_Stopped_ApplicationExit */, status};
-  semihosting_call(SYS_EXIT, (long)args);
+  /*
+   * RISC-V 32-bit semihosting: SYS_EXIT takes the reason code directly
+   * in a1 (not a pointer to a parameter block — that's the 64-bit / ARM
+   * convention).  Use ADP_Stopped_ApplicationExit for success,
+   * ADP_Stopped_RunTimeErrorUnknown for failure.
+   */
+  long reason = (status == 0) ? 0x20026L : 0x20024L;
+  semihosting_call(SYS_EXIT, reason);
   for (;;) {
     __asm__ volatile("wfi");
   }
