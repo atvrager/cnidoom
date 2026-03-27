@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# Pre-commit hook: blocked extensions, size gate, Python lint, C/C++ format.
+# Collects all errors before exiting so the developer sees everything at once.
+
+set -euo pipefail
+
+FAIL=0
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+warn() { printf '\033[33mWARN:\033[0m %s\n' "$1"; }
+fail() { printf '\033[31mFAIL:\033[0m %s\n' "$1"; FAIL=1; }
+
+# Staged files (excluding deleted files and submodule entries).
+# --diff-filter=d  excludes deleted
+# --ignore-submodules  skips submodule changes
+staged_files() {
+    git diff --cached --name-only --diff-filter=d --ignore-submodules
+}
+
+# Staged files filtered by extension (case-insensitive match).
+staged_by_ext() {
+    local pattern="$1"
+    staged_files | grep -iE "$pattern" || true
+}
+
+# ---------------------------------------------------------------------------
+# 1. Blocked extensions
+# ---------------------------------------------------------------------------
+blocked=$(staged_by_ext '\.(wad|tflite|onnx|pb)$')
+if [[ -n "$blocked" ]]; then
+    fail "Blocked file type(s) staged — these belong in .gitignore, not in the repo:"
+    printf '  %s\n' $blocked
+fi
+
+# ---------------------------------------------------------------------------
+# 2. Size gate (50 KB = 51200 bytes)
+# ---------------------------------------------------------------------------
+MAX_BYTES=51200
+while IFS= read -r file; do
+    # Get the staged blob hash, then query its size.
+    blob=$(git ls-files -s "$file" | awk '{print $2}')
+    if [[ -n "$blob" ]]; then
+        size=$(git cat-file -s "$blob")
+        if (( size > MAX_BYTES )); then
+            fail "$file is $(( size / 1024 ))KB (limit 50KB)"
+        fi
+    fi
+done < <(staged_files)
+
+# ---------------------------------------------------------------------------
+# 3. Python lint (ruff)
+# ---------------------------------------------------------------------------
+py_files=$(staged_by_ext '\.py$')
+if [[ -n "$py_files" ]]; then
+    if command -v ruff &>/dev/null; then
+        # shellcheck disable=SC2086
+        if ! ruff check --force-exclude $py_files; then
+            fail "ruff check failed"
+        fi
+        # shellcheck disable=SC2086
+        if ! ruff format --check --force-exclude $py_files; then
+            fail "ruff format check failed"
+        fi
+    else
+        warn "ruff not found — skipping Python lint"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# 4. C/C++ format (clang-format)
+# ---------------------------------------------------------------------------
+c_files=$(staged_by_ext '\.(c|h|cc|cpp)$')
+if [[ -n "$c_files" ]]; then
+    if command -v clang-format &>/dev/null; then
+        # shellcheck disable=SC2086
+        if ! clang-format --dry-run --Werror $c_files 2>&1; then
+            fail "clang-format check failed"
+        fi
+    else
+        warn "clang-format not found — skipping C/C++ format check"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Exit
+# ---------------------------------------------------------------------------
+if (( FAIL )); then
+    echo ""
+    echo "Pre-commit checks failed. Fix the issues above and try again."
+    exit 1
+fi

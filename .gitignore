@@ -205,3 +205,25 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# ===========================================================================
+# cnidoom project-specific
+# ===========================================================================
+
+# Game data
+*.wad
+*.WAD
+
+# ML model artifacts
+*.tflite
+*.onnx
+*.pb
+
+# Directories
+models/
+tb_doom/
+checkpoints/
+
+# C build artifacts
+*.o
+*.a

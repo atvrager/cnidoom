@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Commit-msg hook: enforce conventional commit format.
+
+set -euo pipefail
+
+msg=$(head -1 "$1")
+
+# Allow merge commits and reverts unconditionally.
+if [[ "$msg" =~ ^Merge\  ]] || [[ "$msg" =~ ^Revert\ \" ]]; then
+    exit 0
+fi
+
+# Conventional commit regex:
+#   type(optional-scope)optional-!: description
+pattern='^(feat|fix|chore|docs|refactor|test|ci|build|perf|style)(\([a-zA-Z0-9_-]+\))?!?: .+'
+
+if ! [[ "$msg" =~ $pattern ]]; then
+    echo ""
+    echo "ERROR: Commit message does not follow Conventional Commits format."
+    echo ""
+    echo "Expected: type(scope): description"
+    echo ""
+    echo "Valid types: feat fix chore docs refactor test ci build perf style"
+    echo ""
+    echo "Examples:"
+    echo "  feat(training): add PPO reward shaping"
+    echo "  fix: correct frame stacking order"
+    echo "  chore!: drop Python 3.10 support"
+    echo ""
+    exit 1
+fi
