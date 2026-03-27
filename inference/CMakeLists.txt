@@ -218,8 +218,10 @@ if(EXISTS "${DOOMGENERIC_DIR}/doomgeneric.h" AND TARGET doom_agent_tflm)
     )
     set_target_properties(doom_agent_bin PROPERTIES OUTPUT_NAME doom_agent)
 else()
-    message(STATUS "Skipping headless agent binary — "
-            "doomgeneric or TFLM not available")
+    if(NOT TARGET doom_agent_tflm AND NOT CMAKE_SYSTEM_NAME STREQUAL "Generic")
+        message(STATUS "Skipping TFLM headless agent binary — "
+                "run: git submodule update --init --recursive")
+    endif()
 endif()
 
 # --------------------------------------------------------------------------
