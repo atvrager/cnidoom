@@ -210,22 +210,22 @@ if(EXISTS "${DOOMGENERIC_DIR}/doomgeneric.h" AND TARGET doom_agent_tflm)
     list(FILTER DOOM_SRCS EXCLUDE REGEX "i_sdlmusic\\.c$")
     list(FILTER DOOM_SRCS EXCLUDE REGEX "i_sdlsound\\.c$")
 
-    add_executable(doom_agent_bin
-        doomgeneric_agent.c
-        ${DOOM_SRCS}
-    )
-    if(EXISTS "${MODEL_DATA}")
-        target_sources(doom_agent_bin PRIVATE ${MODEL_DATA})
+    if(NOT EXISTS "${MODEL_DATA}")
+        message(STATUS "Skipping TFLM headless agent binary — "
+                "model data not found at ${MODEL_DATA}. "
+                "Run: xxd -i -n doom_agent_model models/doom_agent_int8.tflite > models/doom_agent_model.c")
     else()
-        message(WARNING "Model data not found at ${MODEL_DATA} — "
-                "run: xxd -i -n doom_agent_model models/doom_agent_int8.tflite > models/doom_agent_model.c")
+        add_executable(doom_agent_bin
+            doomgeneric_agent.c
+            ${MODEL_DATA}
+            ${DOOM_SRCS}
+        )
+        target_include_directories(doom_agent_bin PRIVATE ${DOOMGENERIC_DIR})
+        target_link_libraries(doom_agent_bin PRIVATE
+            doom_agent_core doom_agent_tflm m pthread
+        )
+        set_target_properties(doom_agent_bin PROPERTIES OUTPUT_NAME doom_agent)
     endif()
-
-    target_include_directories(doom_agent_bin PRIVATE ${DOOMGENERIC_DIR})
-    target_link_libraries(doom_agent_bin PRIVATE
-        doom_agent_core doom_agent_tflm m pthread
-    )
-    set_target_properties(doom_agent_bin PROPERTIES OUTPUT_NAME doom_agent)
 else()
     if(NOT TARGET doom_agent_tflm AND NOT CMAKE_SYSTEM_NAME STREQUAL "Generic")
         message(STATUS "Skipping TFLM headless agent binary — "
