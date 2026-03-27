@@ -484,6 +484,26 @@ if(DOOM_AGENT_BUILD_TESTS)
     target_link_libraries(test_quantize PRIVATE doom_agent_preprocess m)
     add_test(NAME quantize COMMAND test_quantize)
 
+    # AVX2 vs generic bit-accuracy test (x86 host, runs natively).
+    if(TARGET doom_agent_static AND "${DOOM_AGENT_KERNEL_TARGET}" STREQUAL "x86")
+        add_executable(test_x86_bitexact
+            test_x86_bitexact.c
+            test_x86_generic_kernels.c
+        )
+        target_include_directories(test_x86_bitexact PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}
+        )
+        target_link_libraries(test_x86_bitexact PRIVATE
+            doom_agent_static
+            m
+        )
+        target_compile_options(test_x86_bitexact PRIVATE -mavx2)
+        set_target_properties(test_x86_bitexact PROPERTIES
+            OUTPUT_NAME test_x86_bitexact
+        )
+        add_test(NAME x86_bitexact COMMAND test_x86_bitexact)
+    endif()
+
     # Static vs TFLM byte-identical comparison test.
     if(TARGET doom_agent_static AND TFLM_LIB)
         add_executable(test_static_vs_tflm test_static_vs_tflm.cc)
