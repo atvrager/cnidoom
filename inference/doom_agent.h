@@ -28,10 +28,15 @@ extern "C" {
 #define AGENT_ACT_USE (1u << 5)
 #define AGENT_NUM_ACTIONS 6
 
-/* Preprocessed frame dimensions. */
+/* Preprocessed frame dimensions.
+ * These are the default (baseline) values.  When building with codegen the
+ * generated graph header emits GRAPH_VISUAL_H/W/C defines that carry the
+ * actual model dimensions — backends should prefer those when available. */
+#ifndef AGENT_FRAME_W
 #define AGENT_FRAME_W 60
 #define AGENT_FRAME_H 45
 #define AGENT_FRAME_STACK 4
+#endif
 
 /* Game state vector — 20 floats matching the training observation. */
 typedef struct {

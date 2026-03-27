@@ -194,34 +194,49 @@ class TestStep:
 
 
 class TestPreprocessing:
-    def test_preprocess_none_returns_zeros(self):
+    def _make_preprocess_env(self, obs_h=45, obs_w=60):
+        """Create a minimal object with obs_h/obs_w for _preprocess_frame."""
         from training.env import DoomHybridEnv
 
-        frame = DoomHybridEnv._preprocess_frame(None)
+        obj = object.__new__(DoomHybridEnv)
+        obj.obs_h = obs_h
+        obj.obs_w = obs_w
+        return obj
+
+    def test_preprocess_none_returns_zeros(self):
+        env = self._make_preprocess_env()
+        frame = env._preprocess_frame(None)
         assert frame.shape == (45, 60)
         assert frame.sum() == 0.0
 
     def test_preprocess_shape(self):
-        from training.env import DoomHybridEnv
-
+        env = self._make_preprocess_env()
         buf = _make_screen_buffer(200)
-        frame = DoomHybridEnv._preprocess_frame(buf)
+        frame = env._preprocess_frame(buf)
         assert frame.shape == (45, 60)
         assert frame.dtype == np.float32
 
     def test_preprocess_white_frame(self):
-        from training.env import DoomHybridEnv
-
+        env = self._make_preprocess_env()
         buf = _make_screen_buffer(255)
-        frame = DoomHybridEnv._preprocess_frame(buf)
+        frame = env._preprocess_frame(buf)
         assert frame.max() == pytest.approx(1.0)
 
     def test_preprocess_black_frame(self):
-        from training.env import DoomHybridEnv
-
+        env = self._make_preprocess_env()
         buf = _make_screen_buffer(0)
-        frame = DoomHybridEnv._preprocess_frame(buf)
+        frame = env._preprocess_frame(buf)
         assert frame.max() == 0.0
+
+    def test_preprocess_v2_resolution(self):
+        env = self._make_preprocess_env(obs_h=60, obs_w=80)
+        frame = env._preprocess_frame(None)
+        assert frame.shape == (60, 80)
+
+        buf = _make_screen_buffer(128)
+        frame = env._preprocess_frame(buf)
+        assert frame.shape == (60, 80)
+        assert frame.dtype == np.float32
 
 
 # ---------------------------------------------------------------------------

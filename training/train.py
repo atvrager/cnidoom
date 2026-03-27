@@ -14,15 +14,40 @@ from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.vec_env import SubprocVecEnv
 
 from training.env import DoomHybridEnv
-from training.model import DoomFeatureExtractor
+from training.model import DoomFeatureExtractor, DoomFeatureExtractorV2
 
 CHECKPOINT_DIR = Path("checkpoints")
 TB_LOG_DIR = Path("tb_doom")
 
 
-def make_env(cfg_path: str | None = None, frame_skip: int = 4):
+MODEL_VERSIONS = {
+    "baseline": {
+        "extractor": DoomFeatureExtractor,
+        "features_dim": 256,
+        "net_arch": dict(pi=[64], vf=[64]),
+        "obs_h": 45,
+        "obs_w": 60,
+    },
+    "v2": {
+        "extractor": DoomFeatureExtractorV2,
+        "features_dim": 128,
+        "net_arch": dict(pi=[64], vf=[64]),
+        "obs_h": 60,
+        "obs_w": 80,
+    },
+}
+
+
+def make_env(
+    cfg_path: str | None = None,
+    frame_skip: int = 4,
+    obs_h: int = 45,
+    obs_w: int = 60,
+):
     def _init():
-        return DoomHybridEnv(cfg_path=cfg_path, frame_skip=frame_skip)
+        return DoomHybridEnv(
+            cfg_path=cfg_path, frame_skip=frame_skip, obs_h=obs_h, obs_w=obs_w
+        )
 
     return _init
 
@@ -32,13 +57,20 @@ def train(
     n_envs: int = 8,
     cfg_path: str | None = None,
     resume: str | None = None,
+    model_version: str = "baseline",
+    obs_h: int | None = None,
+    obs_w: int | None = None,
 ) -> PPO:
     CHECKPOINT_DIR.mkdir(exist_ok=True)
 
+    ver = MODEL_VERSIONS[model_version]
+    obs_h = obs_h or ver["obs_h"]
+    obs_w = obs_w or ver["obs_w"]
+
     policy_kwargs = dict(
-        features_extractor_class=DoomFeatureExtractor,
-        features_extractor_kwargs=dict(features_dim=256),
-        net_arch=dict(pi=[64], vf=[64]),
+        features_extractor_class=ver["extractor"],
+        features_extractor_kwargs=dict(features_dim=ver["features_dim"]),
+        net_arch=ver["net_arch"],
     )
 
     if resume:
@@ -46,14 +78,14 @@ def train(
         model = PPO.load(
             resume,
             env=make_vec_env(
-                make_env(cfg_path),
+                make_env(cfg_path, obs_h=obs_h, obs_w=obs_w),
                 n_envs=n_envs,
                 vec_env_cls=SubprocVecEnv,
             ),
         )
     else:
         env = make_vec_env(
-            make_env(cfg_path),
+            make_env(cfg_path, obs_h=obs_h, obs_w=obs_w),
             n_envs=n_envs,
             vec_env_cls=SubprocVecEnv,
         )
@@ -75,7 +107,7 @@ def train(
         )
 
     # Eval env (single, for speed).
-    eval_env = make_vec_env(make_env(cfg_path), n_envs=1)
+    eval_env = make_vec_env(make_env(cfg_path, obs_h=obs_h, obs_w=obs_w), n_envs=1)
 
     callbacks = [
         CheckpointCallback(
@@ -115,13 +147,34 @@ def main():
     parser.add_argument(
         "--resume", type=str, default=None, help="Path to checkpoint to resume from"
     )
+    parser.add_argument(
+        "--model-version",
+        type=str,
+        default="baseline",
+        choices=list(MODEL_VERSIONS.keys()),
+        help="Model architecture version (default: baseline)",
+    )
+    parser.add_argument(
+        "--obs-res",
+        type=str,
+        default=None,
+        help="Observation resolution as HxW, e.g. '60x80' (overrides model default)",
+    )
     args = parser.parse_args()
+
+    obs_h = None
+    obs_w = None
+    if args.obs_res:
+        obs_h, obs_w = (int(x) for x in args.obs_res.split("x"))
 
     train(
         total_timesteps=args.timesteps,
         n_envs=args.envs,
         cfg_path=args.cfg,
         resume=args.resume,
+        model_version=args.model_version,
+        obs_h=obs_h,
+        obs_w=obs_w,
     )
 
 

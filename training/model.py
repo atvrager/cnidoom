@@ -64,3 +64,50 @@ class DoomFeatureExtractor(BaseFeaturesExtractor):
         vis = self.visual_net(observations["visual"])
         state = observations["state"]
         return self.fc(torch.cat([vis, state], dim=1))
+
+
+class DoomFeatureExtractorV2(BaseFeaturesExtractor):
+    """V2 feature extractor: deeper CNN + Global Average Pooling.
+
+    Visual path: 6 depthwise-separable conv blocks
+        (4, 60, 80) → s2 → (32, 30, 40) → s2 → (64, 15, 20)
+        → s1 → (64, 15, 20) → s2 → (128, 8, 10) → s1 → (128, 8, 10)
+        → s2 → (192, 4, 5)
+        GAP → 192
+
+    State path: 20-float vector passed through directly.
+
+    Combined: concat(192 + 20) = 212 → Dense(256, ReLU) → Dense(128, ReLU)
+              → 128-dim features.
+    """
+
+    # Channel config per block: (out_channels, stride).
+    V2_BLOCKS = [(32, 2), (64, 2), (64, 1), (128, 2), (128, 1), (192, 2)]
+
+    def __init__(self, observation_space: gym.spaces.Dict, features_dim: int = 128):
+        super().__init__(observation_space, features_dim)
+
+        in_ch = observation_space["visual"].shape[0]  # frame stack depth (4)
+        layers: list[nn.Module] = []
+        for out_ch, stride in self.V2_BLOCKS:
+            layers.append(DepthwiseSepConv2d(in_ch, out_ch, stride=stride))
+            in_ch = out_ch
+
+        self.visual_net = nn.Sequential(*layers)
+        self.gap = nn.AdaptiveAvgPool2d((1, 1))
+
+        state_dim = observation_space["state"].shape[0]
+        gap_dim = in_ch  # last block's output channels
+
+        self.fc = nn.Sequential(
+            nn.Linear(gap_dim + state_dim, 256),
+            nn.ReLU(),
+            nn.Linear(256, features_dim),
+            nn.ReLU(),
+        )
+
+    def forward(self, observations: dict[str, torch.Tensor]) -> torch.Tensor:
+        vis = self.visual_net(observations["visual"])
+        vis = self.gap(vis).flatten(1)  # [B, C, 1, 1] → [B, C]
+        state = observations["state"]
+        return self.fc(torch.cat([vis, state], dim=1))

@@ -64,6 +64,10 @@ extern void ref_tanh_int8(const int8_t* in, int count, const int8_t lut[256],
 extern void ref_logistic_int8(const int8_t* in, int count,
                               const int8_t lut[256], int8_t* out);
 
+extern void ref_mean_int8(const int8_t* input, int height, int width,
+                          int channels, const quant_param_t* in_q,
+                          const quant_param_t* out_q, int8_t* output);
+
 /* ------------------------------------------------------------------ */
 /* PRNG (xoshiro128+ — same as test_static_vs_tflm)                   */
 /* ------------------------------------------------------------------ */
@@ -368,6 +372,47 @@ static int test_logistic_lut(int count, int num_trials) {
 }
 
 /* ------------------------------------------------------------------ */
+/* MEAN (Global Average Pooling) test                                  */
+/* ------------------------------------------------------------------ */
+
+/* V2 model dimensions: up to 8×10×128 and 4×5×192. */
+#define MAX_MEAN_IN (8 * 10 * 192)
+#define MAX_MEAN_OUT 192
+
+static int8_t mean_input[MAX_MEAN_IN];
+static int8_t mean_ref_out[MAX_MEAN_OUT];
+static int8_t mean_rvv_out[MAX_MEAN_OUT];
+
+static int test_mean(int height, int width, int channels, int num_trials) {
+  int total_fail = 0;
+
+  for (int trial = 0; trial < num_trials; trial++) {
+    int in_size = height * width * channels;
+
+    fill_random_i8(mean_input, in_size);
+
+    quant_param_t in_q = {.scale = 0.0078f, .zero_point = -1};
+    quant_param_t out_q = {.scale = 0.0039f, .zero_point = 0};
+
+    memset(mean_ref_out, 0xAA, (size_t)channels);
+    memset(mean_rvv_out, 0xBB, (size_t)channels);
+
+    ref_mean_int8(mean_input, height, width, channels, &in_q, &out_q,
+                  mean_ref_out);
+    kernel_mean_int8(mean_input, height, width, channels, &in_q, &out_q,
+                     mean_rvv_out);
+
+    char name[64];
+    snprintf(name, sizeof(name), "mean_%dx%dx%d_t%d", height, width, channels,
+             trial);
+    int m = compare_outputs(mean_ref_out, mean_rvv_out, channels, name);
+    if (m > 0) total_fail++;
+  }
+
+  return total_fail;
+}
+
+/* ------------------------------------------------------------------ */
 /* Main test driver                                                    */
 /* ------------------------------------------------------------------ */
 
@@ -463,6 +508,29 @@ int main(void) {
   /* Node 11: logistic count=6. */
   printf("LOGISTIC count=6                          ... ");
   f = test_logistic_lut(6, TRIALS);
+  printf("%s (%d/%d)\n", f == 0 ? "PASS" : "FAIL", TRIALS - f, TRIALS);
+  total_tests += TRIALS;
+  total_fails += f;
+
+  /* ---- MEAN (Global Average Pooling) ---- */
+
+  /* V2 Block 4 output: 8×10×128. */
+  printf("MEAN    8x10x128                            ... ");
+  f = test_mean(8, 10, 128, TRIALS);
+  printf("%s (%d/%d)\n", f == 0 ? "PASS" : "FAIL", TRIALS - f, TRIALS);
+  total_tests += TRIALS;
+  total_fails += f;
+
+  /* V2 Block 6 output: 4×5×192. */
+  printf("MEAN    4x5x192                             ... ");
+  f = test_mean(4, 5, 192, TRIALS);
+  printf("%s (%d/%d)\n", f == 0 ? "PASS" : "FAIL", TRIALS - f, TRIALS);
+  total_tests += TRIALS;
+  total_fails += f;
+
+  /* Small spatial (edge case): 1×1×64. */
+  printf("MEAN    1x1x64                              ... ");
+  f = test_mean(1, 1, 64, TRIALS);
   printf("%s (%d/%d)\n", f == 0 ? "PASS" : "FAIL", TRIALS - f, TRIALS);
   total_tests += TRIALS;
   total_fails += f;

@@ -19,9 +19,11 @@
 #define kernel_tanh_int8 ref_tanh_int8
 #define kernel_logistic_int8 ref_logistic_int8
 #define kernel_concatenation_int8 ref_concatenation_int8
+#define kernel_mean_int8 ref_mean_int8
 
 #include "kernels/generic/conv2d.c"           /* NOLINT(build/include) */
 #include "kernels/generic/depthwise_conv2d.c" /* NOLINT(build/include) */
 #include "kernels/generic/fully_connected.c"  /* NOLINT(build/include) */
 #include "kernels/generic/logistic_lut.c"     /* NOLINT(build/include) */
+#include "kernels/generic/mean.c"             /* NOLINT(build/include) */
 #include "kernels/generic/tanh_lut.c"         /* NOLINT(build/include) */

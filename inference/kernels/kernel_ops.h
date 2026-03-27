@@ -90,4 +90,17 @@ void kernel_logistic_int8(const int8_t* in, int count, const int8_t lut[256],
 void kernel_concatenation_int8(const int8_t* a, int a_len, const int8_t* b,
                                int b_len, int8_t* out);
 
+/*
+ * MEAN (Global Average Pooling) — INT8, NHWC layout.
+ *
+ * Computes the mean over spatial dimensions [H, W] for each channel,
+ * reducing [1, H, W, C] → [1, C].  Used by TFLite MEAN op (opcode 25)
+ * with axis=[1,2].
+ *
+ * Requantizes from input to output scale/zero_point.
+ */
+void kernel_mean_int8(const int8_t* input, int height, int width, int channels,
+                      const quant_param_t* in_q, const quant_param_t* out_q,
+                      int8_t* output);
+
 #endif /* KERNEL_OPS_H */

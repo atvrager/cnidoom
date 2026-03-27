@@ -34,11 +34,15 @@ class DoomHybridEnv(gym.Env):
         frame_skip: int = 4,
         stack_size: int = 4,
         render_mode: str | None = None,
+        obs_h: int = 45,
+        obs_w: int = 60,
     ):
         super().__init__()
         self.render_mode = render_mode
         self.frame_skip = frame_skip
         self.stack_size = stack_size
+        self.obs_h = obs_h
+        self.obs_w = obs_w
 
         self.game = vzd.DoomGame()
         if cfg_path is not None:
@@ -57,7 +61,7 @@ class DoomHybridEnv(gym.Env):
         self.observation_space = gym.spaces.Dict(
             {
                 "visual": gym.spaces.Box(
-                    0.0, 1.0, (stack_size, 45, 60), dtype=np.float32
+                    0.0, 1.0, (stack_size, self.obs_h, self.obs_w), dtype=np.float32
                 ),
                 "state": gym.spaces.Box(-1.0, 1.0, (20,), dtype=np.float32),
             }
@@ -132,18 +136,17 @@ class DoomHybridEnv(gym.Env):
     # Frame preprocessing
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def _preprocess_frame(buf: np.ndarray | None) -> np.ndarray:
-        """160x120 GRAY8 → 60x45 float32 [0, 1]."""
+    def _preprocess_frame(self, buf: np.ndarray | None) -> np.ndarray:
+        """160x120 GRAY8 → (obs_h, obs_w) float32 [0, 1]."""
         if buf is None:
-            return np.zeros((45, 60), dtype=np.float32)
+            return np.zeros((self.obs_h, self.obs_w), dtype=np.float32)
         # Area downsample: take every other pixel in both dims → ~80x60,
-        # then crop to 45 rows, 60 cols.
+        # then crop to obs_h rows, obs_w cols.
         frame = buf[::2, ::2].astype(np.float32) / 255.0
-        return frame[:45, :60]
+        return frame[: self.obs_h, : self.obs_w]
 
     def _stacked_frames(self) -> np.ndarray:
-        """Return (stack_size, 45, 60) float32 array."""
+        """Return (stack_size, obs_h, obs_w) float32 array."""
         return np.array(self.frames, dtype=np.float32)
 
     # ------------------------------------------------------------------
@@ -240,7 +243,7 @@ class DoomHybridEnv(gym.Env):
             frame = self._preprocess_frame(state.screen_buffer)
             reward = self._shaped_reward(base_reward)
         else:
-            frame = np.zeros((45, 60), dtype=np.float32)
+            frame = np.zeros((self.obs_h, self.obs_w), dtype=np.float32)
             reward = base_reward  # no shaping on terminal step
 
         self.frames.append(frame)

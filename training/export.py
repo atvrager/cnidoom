@@ -57,9 +57,23 @@ def extract_inference_model(checkpoint_path: str) -> InferencePolicy:
     return inference_model
 
 
+def _infer_visual_shape(model: InferencePolicy) -> tuple[int, int, int, int]:
+    """Infer the expected visual input shape from the model's observation space.
+
+    Returns (batch, channels, height, width) in NCHW format.
+    """
+    extractor = model.features_extractor
+    if hasattr(extractor, "observation_space"):
+        vis_shape = extractor.observation_space["visual"].shape  # (C, H, W)
+        return (1, vis_shape[0], vis_shape[1], vis_shape[2])
+    # Fallback for mock/test models: use baseline default.
+    return (1, 4, 45, 60)
+
+
 def export_onnx(model: InferencePolicy, onnx_path: Path) -> None:
     """Export the inference policy to ONNX format."""
-    dummy_vis = torch.randn(1, 4, 45, 60)
+    vis_shape = _infer_visual_shape(model)
+    dummy_vis = torch.randn(*vis_shape)
     dummy_state = torch.randn(1, 20)
 
     torch.onnx.export(
@@ -70,7 +84,7 @@ def export_onnx(model: InferencePolicy, onnx_path: Path) -> None:
         output_names=["action_probs"],
         opset_version=18,
     )
-    print(f"ONNX model saved to {onnx_path}")
+    print(f"ONNX model saved to {onnx_path} (visual shape: {list(vis_shape)})")
 
 
 def prepare_onnx_for_tflite(onnx_path: Path) -> Path:
@@ -133,6 +147,8 @@ def onnx_to_saved_model(onnx_path: Path, saved_model_dir: Path) -> None:
 def collect_representative_dataset(
     cfg_path: str | None = None,
     n_samples: int = 200,
+    obs_h: int = 45,
+    obs_w: int = 60,
 ) -> list[dict[str, np.ndarray]]:
     """Collect calibration frames from VizDoom for full-integer quantization.
 
@@ -144,7 +160,7 @@ def collect_representative_dataset(
     """
     from training.env import DoomHybridEnv
 
-    env = DoomHybridEnv(cfg_path=cfg_path)
+    env = DoomHybridEnv(cfg_path=cfg_path, obs_h=obs_h, obs_w=obs_w)
     samples = []
 
     obs, _ = env.reset()
@@ -152,8 +168,8 @@ def collect_representative_dataset(
         action = env.action_space.sample()
         obs, _, done, _, _ = env.step(action)
         # Training uses NCHW; TFLite expects NHWC.
-        vis_nchw = obs["visual"]  # (4, 45, 60)
-        vis_nhwc = np.transpose(vis_nchw, (1, 2, 0))[np.newaxis]  # (1, 45, 60, 4)
+        vis_nchw = obs["visual"]  # (C, H, W)
+        vis_nhwc = np.transpose(vis_nchw, (1, 2, 0))[np.newaxis]  # (1, H, W, C)
         state = obs["state"][np.newaxis]  # (1, 20)
         samples.append(
             {"visual": vis_nhwc.astype(np.float32), "state": state.astype(np.float32)}
@@ -215,7 +231,7 @@ def quantize_tflite(
     if representative_data is not None:
         # Full-integer quantization with calibration data.
         # The SavedModel signature orders inputs alphabetically:
-        # state (1, 20) then visual (1, 45, 60, 4).
+        # state (1, 20) then visual (1, H, W, C) in NHWC.
         def representative_dataset():
             for sample in representative_data:
                 yield [sample["state"], sample["visual"]]
@@ -301,9 +317,12 @@ def verify_int8_vs_fp32(
     input_details = interpreter.get_input_details()
     output_details = interpreter.get_output_details()
 
+    # Infer visual shape from the model.
+    vis_shape = _infer_visual_shape(model)
+
     diffs = []
     for _ in range(n_samples):
-        vis_nchw = np.random.rand(1, 4, 45, 60).astype(np.float32)
+        vis_nchw = np.random.rand(*vis_shape).astype(np.float32)
         state = np.random.rand(1, 20).astype(np.float32)
 
         # FP32 PyTorch inference (NCHW).
