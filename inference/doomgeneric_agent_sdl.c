@@ -352,7 +352,11 @@ int main(int argc, char** argv) {
   filtered_argv[filtered_argc] = NULL;
 
   doomgeneric_Create(filtered_argc, filtered_argv);
-  D_DoomMain();
+  // D_DoomMain();
+  int ticks = 60 * 60;
+  while (ticks--) {
+    doomgeneric_Tick();
+  }
 
   /* Cleanup. */
   golden_log_close();
