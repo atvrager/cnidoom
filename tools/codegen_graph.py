@@ -602,11 +602,13 @@ def emit_weights_c(graph: ModelGraph, path: str) -> None:
         "",
     ]
 
+    sec = '__attribute__((section(".cnidoom.weights")))\n'
+
     for op, role, tensor in _get_weight_tensors(graph):
         name = _weight_name(op, role)
         if tensor.dtype == TFLITE_INT8:
             size = tensor.size_bytes
-            lines.append(f"const int8_t {name}[{size}] = {{")
+            lines.append(f"{sec}const int8_t {name}[{size}] = {{")
             lines.append(_format_int8_array(tensor.data))
             lines.append("};")
             lines.append("")
@@ -614,14 +616,14 @@ def emit_weights_c(graph: ModelGraph, path: str) -> None:
             count = 1
             for d in tensor.shape:
                 count *= d
-            lines.append(f"const int32_t {name}[{count}] = {{")
+            lines.append(f"{sec}const int32_t {name}[{count}] = {{")
             lines.append(_format_int32_array(tensor.data))
             lines.append("};")
             lines.append("")
 
         if tensor.quant_per_ch is not None:
             n_ch = len(tensor.quant_per_ch.scales)
-            lines.append(f"const float {name}_scales[{n_ch}] = {{")
+            lines.append(f"{sec}const float {name}_scales[{n_ch}] = {{")
             lines.append(_format_float_array(tensor.quant_per_ch.scales))
             lines.append("};")
             lines.append("")
@@ -717,6 +719,7 @@ def emit_graph_c(graph: ModelGraph, scratch: ScratchAlloc, path: str) -> None:
 
     # Scratch buffer.
     lines.append(
+        f'__attribute__((section(".cnidoom.scratch")))\n'
         f"static int8_t scratch[{scratch.total_size}];  "
         f"/* peak scratch: {scratch.total_size} bytes */",
     )

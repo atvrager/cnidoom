@@ -11,6 +11,7 @@ option(DOOM_AGENT_BUILD_TESTS "Build unit tests for inference code" ON)
 option(DOOM_AGENT_HOST "Build host inference engine (TFLM + SDL2)" OFF)
 option(DOOM_AGENT_STATIC "Build static code-generated inference backend" OFF)
 option(DOOM_AGENT_RV32 "Build bare-metal RISC-V 32-bit target for QEMU" OFF)
+option(DOOM_AGENT_EMBEDDED_LIB "Build libcnidoom.a for firmware integration" OFF)
 
 set(DOOM_AGENT_KERNEL_TARGET "generic" CACHE STRING
     "Kernel target: generic, x86, riscv")
@@ -329,6 +330,42 @@ if(DOOM_AGENT_HOST AND TARGET doom_agent_static)
 endif()
 
 # --------------------------------------------------------------------------
+# Embedded library (libcnidoom.a) — Doom engine + agent inference + glue
+# --------------------------------------------------------------------------
+if(DOOM_AGENT_EMBEDDED_LIB AND TARGET doom_agent_static)
+    if(NOT EXISTS "${DOOMGENERIC_DIR}/doomgeneric.h")
+        message(FATAL_ERROR
+            "DOOM_AGENT_EMBEDDED_LIB requires doomgeneric. "
+            "Run: git submodule update --init --recursive")
+    endif()
+
+    # Collect doomgeneric sources (same filtering as other targets).
+    file(GLOB LIB_DOOM_SRCS "${DOOMGENERIC_DIR}/*.c")
+    list(FILTER LIB_DOOM_SRCS EXCLUDE REGEX "doomgeneric_[a-z]+\\.c$")
+    list(FILTER LIB_DOOM_SRCS EXCLUDE REGEX "w_file_stdc\\.c$")
+    list(FILTER LIB_DOOM_SRCS EXCLUDE REGEX "w_file_posix\\.c$")
+    list(FILTER LIB_DOOM_SRCS EXCLUDE REGEX "i_allegro")
+    list(FILTER LIB_DOOM_SRCS EXCLUDE REGEX "i_sdlmusic\\.c$")
+    list(FILTER LIB_DOOM_SRCS EXCLUDE REGEX "i_sdlsound\\.c$")
+
+    add_library(cnidoom STATIC
+        cnidoom.c
+        cnidoom_platform_default.c
+        cnidoom_syscalls.c
+        w_file_cnidoom.c
+        ${LIB_DOOM_SRCS}
+    )
+    target_include_directories(cnidoom PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+    target_include_directories(cnidoom PRIVATE ${DOOMGENERIC_DIR})
+    target_compile_definitions(cnidoom PUBLIC DOOM_AGENT_USE_GRAPH_DIMS)
+    target_link_libraries(cnidoom PUBLIC
+        doom_agent_static doom_agent_core doom_agent_preprocess
+    )
+
+    message(STATUS "Embedded library: libcnidoom.a")
+endif()
+
+# --------------------------------------------------------------------------
 # Bare-metal RISC-V 32-bit target (QEMU virt + ramfb display)
 # --------------------------------------------------------------------------
 if(DOOM_AGENT_RV32 AND TARGET doom_agent_static)
@@ -338,17 +375,12 @@ if(DOOM_AGENT_RV32 AND TARGET doom_agent_static)
             "Run: git submodule update --init --recursive")
     endif()
 
-    # Collect doomgeneric sources (same filtering as other targets).
-    file(GLOB RV32_DOOM_SRCS "${DOOMGENERIC_DIR}/*.c")
-    list(FILTER RV32_DOOM_SRCS EXCLUDE REGEX "doomgeneric_[a-z]+\\.c$")
-    list(FILTER RV32_DOOM_SRCS EXCLUDE REGEX "i_allegro")
-    list(FILTER RV32_DOOM_SRCS EXCLUDE REGEX "i_sdlmusic\\.c$")
-    list(FILTER RV32_DOOM_SRCS EXCLUDE REGEX "i_sdlsound\\.c$")
+    set(RV32_PLATFORM_DIR "${CMAKE_CURRENT_SOURCE_DIR}/platform/rv32")
+    set(RV32_LINKER_SCRIPT "${RV32_PLATFORM_DIR}/linker.ld")
 
     # Embedded WAD: convert the WAD binary into a linkable .o with a
-    # .wad section (placed in DDR by the linker script).  Replaces
-    # semihosting file I/O with a const-blob memory-mapped backend.
-    set(RV32_WAD_SRCS "")
+    # .cnidoom.wad section (placed in DDR by the linker script).
+    set(RV32_WAD_OBJ "")
     if(DOOM_AGENT_EMBED_WAD AND EXISTS "${DOOM_AGENT_EMBED_WAD}")
         set(EMBEDDED_WAD_OBJ "${CMAKE_CURRENT_BINARY_DIR}/embedded_wad.o")
 
@@ -359,7 +391,7 @@ if(DOOM_AGENT_RV32 AND TARGET doom_agent_static)
                 "${CMAKE_CURRENT_BINARY_DIR}/embedded_wad.bin"
             COMMAND ${CMAKE_OBJCOPY}
                 -I binary -O elf32-littleriscv -B riscv
-                --rename-section .data=.wad,alloc,load,readonly,data,contents
+                --rename-section .data=.cnidoom.wad,alloc,load,readonly,data,contents
                 --redefine-sym _binary_embedded_wad_bin_start=_embedded_wad_start
                 --redefine-sym _binary_embedded_wad_bin_end=_embedded_wad_end
                 --redefine-sym _binary_embedded_wad_bin_size=_embedded_wad_size
@@ -369,57 +401,80 @@ if(DOOM_AGENT_RV32 AND TARGET doom_agent_static)
             COMMENT "Embedding WAD: ${DOOM_AGENT_EMBED_WAD}"
         )
 
-        # Replace stdc file I/O with our memory-mapped embedded backend.
-        list(FILTER RV32_DOOM_SRCS EXCLUDE REGEX "w_file_stdc\\.c$")
-        set(RV32_WAD_SRCS
-            "${CMAKE_CURRENT_SOURCE_DIR}/w_file_embedded.c"
-            "${EMBEDDED_WAD_OBJ}"
-        )
-
+        set(RV32_WAD_OBJ "${EMBEDDED_WAD_OBJ}")
         message(STATUS "Embedded WAD: ${DOOM_AGENT_EMBED_WAD}")
     else()
         message(STATUS "WAD: semihosting (no embedded WAD)")
     endif()
 
-    # Platform support sources (startup, UART, syscalls, ramfb).
-    set(RV32_PLATFORM_DIR "${CMAKE_CURRENT_SOURCE_DIR}/platform/rv32")
-    set(RV32_PLATFORM_SRCS
-        ${RV32_PLATFORM_DIR}/startup.S
-        ${RV32_PLATFORM_DIR}/syscalls.c
-        ${RV32_PLATFORM_DIR}/uart.c
-        ${RV32_PLATFORM_DIR}/ramfb.c
-    )
+    if(TARGET cnidoom)
+        # ── Library path: link against libcnidoom.a ──────────────────
+        add_executable(doom_agent_rv32_bin
+            ${RV32_PLATFORM_DIR}/startup.S
+            ${RV32_PLATFORM_DIR}/qemu_main.c
+            ${RV32_PLATFORM_DIR}/qemu_platform.c
+            ${RV32_PLATFORM_DIR}/uart.c
+            ${RV32_PLATFORM_DIR}/ramfb.c
+            ${RV32_WAD_OBJ}
+        )
+        target_include_directories(doom_agent_rv32_bin PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}
+            ${RV32_PLATFORM_DIR}
+        )
+        target_link_libraries(doom_agent_rv32_bin PRIVATE
+            -Wl,--whole-archive cnidoom -Wl,--no-whole-archive
+            -Wl,--start-group
+            doom_agent_static doom_agent_core doom_agent_preprocess
+            -Wl,--end-group
+            -lc -lm -lgcc
+        )
+    else()
+        # ── Monolithic path: original standalone build ───────────────
+        file(GLOB RV32_DOOM_SRCS "${DOOMGENERIC_DIR}/*.c")
+        list(FILTER RV32_DOOM_SRCS EXCLUDE REGEX "doomgeneric_[a-z]+\\.c$")
+        list(FILTER RV32_DOOM_SRCS EXCLUDE REGEX "i_allegro")
+        list(FILTER RV32_DOOM_SRCS EXCLUDE REGEX "i_sdlmusic\\.c$")
+        list(FILTER RV32_DOOM_SRCS EXCLUDE REGEX "i_sdlsound\\.c$")
 
-    # Linker script.
-    set(RV32_LINKER_SCRIPT "${RV32_PLATFORM_DIR}/linker.ld")
+        set(RV32_WAD_SRCS "")
+        if(RV32_WAD_OBJ)
+            list(FILTER RV32_DOOM_SRCS EXCLUDE REGEX "w_file_stdc\\.c$")
+            set(RV32_WAD_SRCS
+                "${CMAKE_CURRENT_SOURCE_DIR}/w_file_embedded.c"
+                "${RV32_WAD_OBJ}"
+            )
+        endif()
 
-    add_executable(doom_agent_rv32_bin
-        doomgeneric_agent_rv32.c
-        ${RV32_DOOM_SRCS}
-        ${RV32_WAD_SRCS}
-        ${RV32_PLATFORM_SRCS}
-    )
+        set(RV32_PLATFORM_SRCS
+            ${RV32_PLATFORM_DIR}/startup.S
+            ${RV32_PLATFORM_DIR}/syscalls.c
+            ${RV32_PLATFORM_DIR}/uart.c
+            ${RV32_PLATFORM_DIR}/ramfb.c
+        )
 
-    target_compile_definitions(doom_agent_rv32_bin PRIVATE
-        DOOM_AGENT_USE_GRAPH_DIMS
-    )
-    target_include_directories(doom_agent_rv32_bin PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}
-        ${DOOMGENERIC_DIR}
-        ${GENERATED_DIR}
-    )
+        add_executable(doom_agent_rv32_bin
+            doomgeneric_agent_rv32.c
+            ${RV32_DOOM_SRCS}
+            ${RV32_WAD_SRCS}
+            ${RV32_PLATFORM_SRCS}
+        )
+        target_compile_definitions(doom_agent_rv32_bin PRIVATE
+            DOOM_AGENT_USE_GRAPH_DIMS
+        )
+        target_include_directories(doom_agent_rv32_bin PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}
+            ${DOOMGENERIC_DIR}
+            ${GENERATED_DIR}
+        )
+        target_link_libraries(doom_agent_rv32_bin PRIVATE
+            -Wl,--start-group
+            doom_agent_static doom_agent_core doom_agent_preprocess
+            -Wl,--end-group
+            -lc -lm -lgcc
+        )
+    endif()
 
-    # doom_agent_core references tflm_* symbols defined in doom_agent_static.
-    # Wrap all our static libs in --start-group / --end-group so the linker
-    # rescans them to resolve the circular dependency.
-    target_link_libraries(doom_agent_rv32_bin PRIVATE
-        -Wl,--start-group
-        doom_agent_static doom_agent_core doom_agent_preprocess
-        -Wl,--end-group
-        -lc -lm -lgcc
-    )
-
-    # Bare-metal link flags: use our linker script, link newlib + libgcc.
+    # Bare-metal link flags (shared by both paths).
     target_link_options(doom_agent_rv32_bin PRIVATE
         -T${RV32_LINKER_SCRIPT}
         -Wl,--no-warn-rwx-segments

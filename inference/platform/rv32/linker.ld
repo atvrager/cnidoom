@@ -44,6 +44,12 @@ SECTIONS
         *(.srodata .srodata.*)
     } > SRAM
 
+    /* ── SRAM: cnidoom model weights (const, from codegen) ────────── */
+
+    .cnidoom.weights : ALIGN(4) {
+        *(.cnidoom.weights)
+    } > SRAM
+
     /* ── DTCM: read-write initialized data + stack ─────────────── */
 
     .data : ALIGN(4) {
@@ -68,10 +74,17 @@ SECTIONS
         __bss_end = .;
     } > SRAM
 
+    /* ── SRAM: cnidoom scratch buffer (RW, hot activations) ───────── */
+
+    .cnidoom.scratch (NOLOAD) : ALIGN(4) {
+        *(.cnidoom.scratch)
+    } > SRAM
+
     /* ── DDR: embedded WAD + heap ──────────────────────────────── */
 
     .wad : ALIGN(4) {
         KEEP(*(.wad .wad.*))
+        KEEP(*(.cnidoom.wad))
     } > DDR
 
     /* Heap lives in DDR after the WAD — plenty of room for Doom's
