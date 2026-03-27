@@ -1,0 +1,6 @@
+[submodule "doomgeneric"]
+	path = doomgeneric
+	url = https://github.com/ozkl/doomgeneric.git
+[submodule "tflite-micro"]
+	path = tflite-micro
+	url = https://github.com/tensorflow/tflite-micro.git

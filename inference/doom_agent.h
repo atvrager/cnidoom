@@ -74,6 +74,7 @@ void agent_destroy(void);
 
 /*
  * Preprocess a single RGBA frame to grayscale INT8.
+ * Output range: [-128, 127] (uint8 gray - 128).
  * Exposed for unit testing.
  *
  * rgba: input framebuffer (RGBA packed, row-major)
@@ -82,6 +83,14 @@ void agent_destroy(void);
  */
 void agent_preprocess_frame(const uint32_t* rgba, int w, int h,
                             int8_t out[AGENT_FRAME_H][AGENT_FRAME_W]);
+
+/*
+ * Preprocess a single RGBA frame to grayscale float [0, 1].
+ * Used by the host backend for FP32/FP16 models.
+ * Exposed for unit testing.
+ */
+void agent_preprocess_frame_float(const uint32_t* rgba, int w, int h,
+                                  float out[AGENT_FRAME_H][AGENT_FRAME_W]);
 
 /*
  * Quantize a game state vector to INT8.
@@ -94,6 +103,34 @@ void agent_preprocess_frame(const uint32_t* rgba, int w, int h,
  */
 void agent_quantize_state(const agent_game_state_t* gs, int8_t out[20],
                           float scale, int32_t zero_point);
+
+/*
+ * Host backend: initialize with a .tflite model file.
+ * Returns 0 on success, -1 on failure.
+ */
+int agent_init_host(const char* model_path);
+
+/*
+ * Host backend: run inference on float frame data.
+ * The backend auto-detects INT8 vs float model I/O and handles
+ * quantization/dequantization internally.
+ *
+ * frame_nhwc: preprocessed frame stack in NHWC float [0, 1]
+ * state: game state (20 floats)
+ * out_probs: output buffer for 6 action probabilities (may be NULL)
+ * out_inference_us: inference duration in microseconds (may be NULL)
+ *
+ * Returns action bitfield (AGENT_ACT_* flags OR'd together).
+ */
+uint8_t agent_infer_host(
+    const float frame_nhwc[AGENT_FRAME_H * AGENT_FRAME_W * AGENT_FRAME_STACK],
+    const float state[20], float out_probs[AGENT_NUM_ACTIONS],
+    int64_t* out_inference_us);
+
+/*
+ * Host backend: tear down.
+ */
+void agent_destroy_host(void);
 
 #ifdef __cplusplus
 }

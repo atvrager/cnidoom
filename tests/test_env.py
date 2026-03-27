@@ -6,7 +6,6 @@ import gymnasium as gym
 import numpy as np
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -44,13 +43,25 @@ def env():
         mock_vzd.ScreenResolution.RES_160X120 = "RES_160X120"
         mock_vzd.ScreenFormat.GRAY8 = "GRAY8"
         for name in [
-            "HEALTH", "ARMOR", "AMMO2", "AMMO3", "AMMO4", "AMMO5",
-            "SELECTED_WEAPON", "KILLCOUNT", "POSITION_X", "POSITION_Y",
+            "HEALTH",
+            "ARMOR",
+            "AMMO2",
+            "AMMO3",
+            "AMMO4",
+            "AMMO5",
+            "SELECTED_WEAPON",
+            "KILLCOUNT",
+            "POSITION_X",
+            "POSITION_Y",
         ]:
             setattr(mock_vzd.GameVariable, name, name)
         for name in [
-            "MOVE_FORWARD", "MOVE_BACKWARD", "TURN_LEFT",
-            "TURN_RIGHT", "ATTACK", "USE",
+            "MOVE_FORWARD",
+            "MOVE_BACKWARD",
+            "TURN_LEFT",
+            "TURN_RIGHT",
+            "ATTACK",
+            "USE",
         ]:
             setattr(mock_vzd.Button, name, name)
 
@@ -158,7 +169,7 @@ class TestStep:
         """Each step should shift the frame stack (oldest dropped, new appended)."""
         # Use different pixel values per step to distinguish frames.
         env.reset()
-        for i, val in enumerate([50, 100, 150, 200]):
+        for _i, val in enumerate([50, 100, 150, 200]):
             state = MagicMock()
             state.screen_buffer = _make_screen_buffer(val)
             env._mock_game.get_state.return_value = state
@@ -305,6 +316,7 @@ class TestStateVector:
 
     def test_weapon_one_hot(self, env):
         """Selected weapon should produce exactly one 1.0 in indices 6-14."""
+
         def gv_weapon(var):
             if var == "SELECTED_WEAPON":
                 return 2.0

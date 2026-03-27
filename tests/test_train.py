@@ -3,7 +3,6 @@
 from unittest.mock import patch
 
 import numpy as np
-import pytest
 
 
 class TestMakeEnv:
@@ -34,6 +33,7 @@ class TestMainArgparse:
     def test_default_args(self):
         """Verify argparse defaults without actually training."""
         from training.train import main
+
         # We just verify the function exists and is callable — actual training
         # is an integration test that requires VizDoom.
         assert callable(main)
@@ -62,12 +62,24 @@ def _wire_enums(mock_vzd):
     mock_vzd.ScreenResolution.RES_160X120 = "RES_160X120"
     mock_vzd.ScreenFormat.GRAY8 = "GRAY8"
     for name in [
-        "HEALTH", "ARMOR", "AMMO2", "AMMO3", "AMMO4", "AMMO5",
-        "SELECTED_WEAPON", "KILLCOUNT", "POSITION_X", "POSITION_Y",
+        "HEALTH",
+        "ARMOR",
+        "AMMO2",
+        "AMMO3",
+        "AMMO4",
+        "AMMO5",
+        "SELECTED_WEAPON",
+        "KILLCOUNT",
+        "POSITION_X",
+        "POSITION_Y",
     ]:
         setattr(mock_vzd.GameVariable, name, name)
     for name in [
-        "MOVE_FORWARD", "MOVE_BACKWARD", "TURN_LEFT",
-        "TURN_RIGHT", "ATTACK", "USE",
+        "MOVE_FORWARD",
+        "MOVE_BACKWARD",
+        "TURN_LEFT",
+        "TURN_RIGHT",
+        "ATTACK",
+        "USE",
     ]:
         setattr(mock_vzd.Button, name, name)
