@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(doom_agent C CXX)
+project(doom_agent C CXX ASM)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
@@ -10,6 +10,7 @@ set(CMAKE_CXX_STANDARD 17)
 option(DOOM_AGENT_BUILD_TESTS "Build unit tests for inference code" ON)
 option(DOOM_AGENT_HOST "Build host inference engine (TFLM + SDL2)" OFF)
 option(DOOM_AGENT_STATIC "Build static code-generated inference backend" OFF)
+option(DOOM_AGENT_RV32 "Build bare-metal RISC-V 32-bit target for QEMU" OFF)
 
 set(DOOM_AGENT_KERNEL_TARGET "generic" CACHE STRING
     "Kernel target: generic, x86, riscv")
@@ -29,7 +30,7 @@ set(MODEL_DATA "${CMAKE_SOURCE_DIR}/../models/doom_agent_model.c"
 set(TFLM_LIB "")
 set(TFLM_INCLUDE_DIRS "")
 
-if(EXISTS "${TFLM_DIR}/tensorflow/lite/micro")
+if(EXISTS "${TFLM_DIR}/tensorflow/lite/micro" AND NOT CMAKE_SYSTEM_NAME STREQUAL "Generic")
     # Build via TFLM's own Makefile — it handles dependency downloads,
     # kernel selection, and host CPU optimization automatically.
     set(TFLM_GEN_DIR "${TFLM_DIR}/gen")
@@ -312,6 +313,72 @@ if(DOOM_AGENT_HOST AND TARGET doom_agent_static)
     set_target_properties(doom_agent_static_host_bin PROPERTIES
         OUTPUT_NAME doom_agent_static_host
     )
+endif()
+
+# --------------------------------------------------------------------------
+# Bare-metal RISC-V 32-bit target (QEMU virt + ramfb display)
+# --------------------------------------------------------------------------
+if(DOOM_AGENT_RV32 AND TARGET doom_agent_static)
+    if(NOT EXISTS "${DOOMGENERIC_DIR}/doomgeneric.h")
+        message(FATAL_ERROR
+            "DOOM_AGENT_RV32 requires doomgeneric. "
+            "Run: git submodule update --init --recursive")
+    endif()
+
+    # Collect doomgeneric sources (same filtering as other targets).
+    file(GLOB RV32_DOOM_SRCS "${DOOMGENERIC_DIR}/*.c")
+    list(FILTER RV32_DOOM_SRCS EXCLUDE REGEX "doomgeneric_[a-z]+\\.c$")
+    list(FILTER RV32_DOOM_SRCS EXCLUDE REGEX "i_allegro")
+    list(FILTER RV32_DOOM_SRCS EXCLUDE REGEX "i_sdlmusic\\.c$")
+    list(FILTER RV32_DOOM_SRCS EXCLUDE REGEX "i_sdlsound\\.c$")
+
+    # Platform support sources (startup, UART, syscalls, ramfb).
+    set(RV32_PLATFORM_DIR "${CMAKE_CURRENT_SOURCE_DIR}/platform/rv32")
+    set(RV32_PLATFORM_SRCS
+        ${RV32_PLATFORM_DIR}/startup.S
+        ${RV32_PLATFORM_DIR}/syscalls.c
+        ${RV32_PLATFORM_DIR}/uart.c
+        ${RV32_PLATFORM_DIR}/ramfb.c
+    )
+
+    # Linker script.
+    set(RV32_LINKER_SCRIPT "${RV32_PLATFORM_DIR}/linker.ld")
+
+    add_executable(doom_agent_rv32_bin
+        doomgeneric_agent_rv32.c
+        ${RV32_DOOM_SRCS}
+        ${RV32_PLATFORM_SRCS}
+    )
+
+    target_include_directories(doom_agent_rv32_bin PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${DOOMGENERIC_DIR}
+        ${GENERATED_DIR}
+    )
+
+    # doom_agent_core references tflm_* symbols defined in doom_agent_static.
+    # Wrap all our static libs in --start-group / --end-group so the linker
+    # rescans them to resolve the circular dependency.
+    target_link_libraries(doom_agent_rv32_bin PRIVATE
+        -Wl,--start-group
+        doom_agent_static doom_agent_core doom_agent_preprocess
+        -Wl,--end-group
+        -lc -lm -lgcc
+    )
+
+    # Bare-metal link flags: use our linker script, link newlib + libgcc.
+    target_link_options(doom_agent_rv32_bin PRIVATE
+        -T${RV32_LINKER_SCRIPT}
+        -Wl,--no-warn-rwx-segments
+        -Wl,--Map=$<TARGET_FILE_DIR:doom_agent_rv32_bin>/doom_agent_rv32.map
+    )
+
+    set_target_properties(doom_agent_rv32_bin PROPERTIES
+        OUTPUT_NAME doom_agent_rv32
+        SUFFIX ".elf"
+    )
+
+    message(STATUS "RISC-V 32-bit target enabled (QEMU virt, ramfb display)")
 endif()
 
 # --------------------------------------------------------------------------

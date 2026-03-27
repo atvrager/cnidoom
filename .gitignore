@@ -235,3 +235,4 @@ inference/generated/
 # C build artifacts
 *.o
 *.a
+.toolchain/
