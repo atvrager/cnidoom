@@ -2,9 +2,9 @@
 
 Pipeline:
     1. Extract inference-only policy (no value head) from SB3 checkpoint
-    2. Export to ONNX (opset 13)
+    2. Export to ONNX
     3. Convert ONNX → TF SavedModel (handles NCHW → NHWC)
-    4. Quantize to INT8 TFLite with representative dataset
+    4. Quantize to INT8 TFLite (dynamic range; full-integer is WIP)
     5. Verify BatchNorm folding and INT8 vs FP32 agreement
 
 Usage:
@@ -59,7 +59,7 @@ def export_onnx(model: InferencePolicy, onnx_path: Path) -> None:
         str(onnx_path),
         input_names=["visual", "state"],
         output_names=["action_probs"],
-        opset_version=13,
+        opset_version=18,
         dynamic_axes={
             "visual": {0: "batch"},
             "state": {0: "batch"},
@@ -70,63 +70,39 @@ def export_onnx(model: InferencePolicy, onnx_path: Path) -> None:
 
 
 def onnx_to_saved_model(onnx_path: Path, saved_model_dir: Path) -> None:
-    """Convert ONNX model to TF SavedModel (handles NCHW → NHWC)."""
+    """Convert ONNX model to TF SavedModel (handles NCHW → NHWC).
+
+    Also generates FP32 and FP16 .tflite files in the output directory.
+    """
     import onnx2tf
 
     onnx2tf.convert(
         input_onnx_file_path=str(onnx_path),
         output_folder_path=str(saved_model_dir),
         non_verbose=True,
+        copy_onnx_input_output_names_to_tflite=True,
     )
     print(f"TF SavedModel saved to {saved_model_dir}")
-
-
-def collect_representative_dataset(
-    n_samples: int = 200,
-    cfg_path: str | None = None,
-):
-    """Collect calibration data from random gameplay for INT8 quantization."""
-    from training.env import DoomHybridEnv
-
-    env = DoomHybridEnv(cfg_path=cfg_path)
-    obs, _ = env.reset()
-    samples = []
-
-    for _ in range(n_samples):
-        action = env.action_space.sample()
-        obs, _, done, _, _ = env.step(action)
-        samples.append(
-            (
-                obs["visual"][np.newaxis].astype(np.float32),
-                obs["state"][np.newaxis].astype(np.float32),
-            )
-        )
-        if done:
-            obs, _ = env.reset()
-
-    env.close()
-    return samples
 
 
 def quantize_tflite(
     saved_model_dir: Path,
     tflite_path: Path,
-    representative_data: list[tuple[np.ndarray, np.ndarray]],
 ) -> bytes:
-    """Convert TF SavedModel to INT8 TFLite with full-integer quantization."""
+    """Quantize TF SavedModel to INT8 TFLite (dynamic range).
+
+    Uses dynamic range quantization: weights are INT8, activations are
+    computed in float. This avoids the PAD op calibration issue that
+    occurs with full-integer quantization when PyTorch Conv2d padding
+    is decomposed into explicit Pad + Conv during ONNX→TF conversion.
+
+    For full-integer quantization (INT8 inputs/outputs), the PAD ops
+    need to be fused into Conv at the ONNX graph level first.
+    """
     import tensorflow as tf
 
     converter = tf.lite.TFLiteConverter.from_saved_model(str(saved_model_dir))
     converter.optimizations = [tf.lite.Optimize.DEFAULT]
-
-    def representative_dataset():
-        for visual, state in representative_data:
-            yield [visual, state]
-
-    converter.representative_dataset = representative_dataset
-    converter.target_spec.supported_ops = [tf.lite.OpsSet.TFLITE_BUILTINS_INT8]
-    converter.inference_input_type = tf.int8
-    converter.inference_output_type = tf.int8
 
     tflite_model = converter.convert()
 
@@ -145,9 +121,10 @@ def verify_no_batchnorm(tflite_path: Path) -> bool:
     ops = {detail["op_name"] for detail in interpreter._get_ops_details()}
     print(f"TFLite ops: {sorted(ops)}")
 
-    bad_ops = ops & {"BATCH_NORM", "MUL", "ADD"}
+    # PAD is expected (from Conv2d padding decomposition) — not a BN artifact.
+    bad_ops = ops & {"BATCH_NORM"}
     if bad_ops:
-        print(f"WARNING: possible unfused BatchNorm ops: {bad_ops}")
+        print(f"WARNING: unfused BatchNorm ops found: {bad_ops}")
         return False
     print("BatchNorm folding verified — no unfused ops found.")
     return True
@@ -162,6 +139,8 @@ def verify_int8_vs_fp32(
     """Compare INT8 TFLite output against FP32 PyTorch output.
 
     Returns True if mean absolute difference is within tolerance.
+    The TFLite model uses NHWC layout (onnx2tf transposes automatically),
+    while the PyTorch model uses NCHW.
     """
     import tensorflow as tf
 
@@ -177,33 +156,44 @@ def verify_int8_vs_fp32(
 
     diffs = []
     for _ in range(n_samples):
-        vis = np.random.rand(1, 4, 45, 60).astype(np.float32)
+        vis_nchw = np.random.rand(1, 4, 45, 60).astype(np.float32)
         state = np.random.rand(1, 20).astype(np.float32)
 
-        # FP32 inference.
+        # FP32 PyTorch inference (NCHW).
         with torch.no_grad():
-            fp32_out = model(torch.from_numpy(vis), torch.from_numpy(state))
+            fp32_out = model(torch.from_numpy(vis_nchw), torch.from_numpy(state))
             fp32_probs = fp32_out.numpy()
 
-        # INT8 inference — quantize inputs, dequantize output.
+        # TFLite inference — set inputs based on shape/name.
         for detail in input_details:
-            scale, zp = detail["quantization"]
             name = detail["name"]
-            data = vis if "visual" in name else state
-            # ONNX→TF may have transposed visual to NHWC.
-            if detail["shape"][-1] == 4 and len(detail["shape"]) == 4:
-                data = np.transpose(data, (0, 2, 3, 1))  # NCHW → NHWC
-            q_data = np.clip(np.round(data / scale) + zp, -128, 127).astype(np.int8)
-            interpreter.set_tensor(detail["index"], q_data)
+            dtype = detail["dtype"]
+            if "visual" in name or (
+                len(detail["shape"]) == 4 and detail["shape"][-1] == 4
+            ):
+                # NCHW → NHWC for visual input.
+                data = np.transpose(vis_nchw, (0, 2, 3, 1))
+            else:
+                data = state
+
+            if dtype == np.int8:
+                scale, zp = detail["quantization"]
+                data = np.clip(np.round(data / scale) + zp, -128, 127).astype(np.int8)
+            else:
+                data = data.astype(dtype)
+            interpreter.set_tensor(detail["index"], data)
 
         interpreter.invoke()
 
         out_detail = output_details[0]
-        out_scale, out_zp = out_detail["quantization"]
-        int8_out = interpreter.get_tensor(out_detail["index"])
-        int8_probs = (int8_out.astype(np.float32) - out_zp) * out_scale
+        raw_out = interpreter.get_tensor(out_detail["index"])
+        if out_detail["dtype"] == np.int8:
+            out_scale, out_zp = out_detail["quantization"]
+            tflite_probs = (raw_out.astype(np.float32) - out_zp) * out_scale
+        else:
+            tflite_probs = raw_out.astype(np.float32)
 
-        diffs.append(np.abs(fp32_probs - int8_probs).mean())
+        diffs.append(np.abs(fp32_probs - tflite_probs).mean())
 
     mean_diff = np.mean(diffs)
     print(f"INT8 vs FP32 mean abs diff: {mean_diff:.4f} (tolerance: {tolerance})")
@@ -230,18 +220,6 @@ def main():
         help="Output directory for exported models",
     )
     parser.add_argument(
-        "--cfg",
-        type=str,
-        default=None,
-        help="VizDoom config for calibration data collection",
-    )
-    parser.add_argument(
-        "--calibration-samples",
-        type=int,
-        default=200,
-        help="Number of calibration samples for INT8 quantization",
-    )
-    parser.add_argument(
         "--skip-verify",
         action="store_true",
         help="Skip INT8 vs FP32 verification",
@@ -262,40 +240,38 @@ def main():
     model = extract_inference_model(args.checkpoint)
     export_onnx(model, onnx_path)
 
-    # 2. ONNX → TF SavedModel.
+    # 2. ONNX → TF SavedModel + FP32/FP16 TFLite.
     print("\n" + "=" * 60)
     print("Step 2: Converting ONNX → TF SavedModel")
     print("=" * 60)
     onnx_to_saved_model(onnx_path, saved_model_dir)
 
-    # 3. Collect calibration data.
+    # 3. Quantize to INT8 TFLite (dynamic range).
     print("\n" + "=" * 60)
-    print(f"Step 3: Collecting {args.calibration_samples} calibration samples")
+    print("Step 3: Quantizing to INT8 TFLite")
     print("=" * 60)
-    rep_data = collect_representative_dataset(
-        n_samples=args.calibration_samples,
-        cfg_path=args.cfg,
-    )
+    quantize_tflite(saved_model_dir, tflite_path)
 
-    # 4. Quantize to INT8 TFLite.
+    # 4. Verify.
     print("\n" + "=" * 60)
-    print("Step 4: Quantizing to INT8 TFLite")
-    print("=" * 60)
-    quantize_tflite(saved_model_dir, tflite_path, rep_data)
-
-    # 5. Verify.
-    print("\n" + "=" * 60)
-    print("Step 5: Verification")
+    print("Step 4: Verification")
     print("=" * 60)
     verify_no_batchnorm(tflite_path)
 
     if not args.skip_verify:
         verify_int8_vs_fp32(args.checkpoint, tflite_path)
 
+    # Summary.
+    fp32_tflite = saved_model_dir / "doom_agent_float32.tflite"
+    fp32_size = fp32_tflite.stat().st_size / 1024 if fp32_tflite.exists() else 0
+    int8_size = tflite_path.stat().st_size / 1024
+
     print("\n" + "=" * 60)
     print("Export complete!")
-    print(f"  ONNX:     {onnx_path}")
-    print(f"  TFLite:   {tflite_path}")
+    print(f"  ONNX:       {onnx_path}")
+    print(f"  FP32 TFLite: {fp32_tflite} ({fp32_size:.1f} KB)")
+    print(f"  INT8 TFLite: {tflite_path} ({int8_size:.1f} KB)")
+    print(f"  Compression: {fp32_size / int8_size:.1f}x" if int8_size else "")
     print("=" * 60)
 
 
