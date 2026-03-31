@@ -52,6 +52,47 @@ def make_env(
     return _init
 
 
+def scaled_ppo_kwargs(n_envs: int) -> dict:
+    """Return PPO hyperparameters scaled for the number of environments.
+
+    At 8 envs (baseline), we use the original values.  As envs increase,
+    batch_size scales up so the number of gradient steps per rollout
+    stays roughly constant, and n_epochs decreases to avoid over-fitting
+    on each rollout.
+
+    Rollout buffer = n_envs × n_steps samples.
+    Gradient steps per update = (buffer / batch_size) × n_epochs.
+
+    Target: ~2500 gradient steps per update (same as 8 envs baseline).
+    """
+    n_steps = 2048
+    buffer = n_envs * n_steps
+
+    if n_envs <= 16:
+        batch_size = 64
+        n_epochs = 10
+    elif n_envs <= 64:
+        batch_size = 512
+        n_epochs = 6
+    else:
+        # 128+ envs: large rollouts, scale batch, fewer epochs.
+        batch_size = 2048
+        n_epochs = 4
+
+    grad_steps = (buffer // batch_size) * n_epochs
+    print(
+        f"PPO scaling: {n_envs} envs × {n_steps} steps = {buffer:,} buffer, "
+        f"batch={batch_size}, epochs={n_epochs}, "
+        f"~{grad_steps:,} grad steps/update"
+    )
+
+    return dict(
+        n_steps=n_steps,
+        batch_size=batch_size,
+        n_epochs=n_epochs,
+    )
+
+
 def train(
     total_timesteps: int = 5_000_000,
     n_envs: int = 8,
@@ -61,6 +102,8 @@ def train(
     obs_h: int | None = None,
     obs_w: int | None = None,
     output: str = "doom_agent_ppo",
+    batch_size: int | None = None,
+    n_epochs: int | None = None,
 ) -> PPO:
     CHECKPOINT_DIR.mkdir(exist_ok=True)
 
@@ -80,18 +123,28 @@ def train(
         vec_env_cls=SubprocVecEnv,
     )
 
+    # Scale PPO hyperparameters for the env count.
+    ppo_kw = scaled_ppo_kwargs(n_envs)
+    if batch_size is not None:
+        ppo_kw["batch_size"] = batch_size
+    if n_epochs is not None:
+        ppo_kw["n_epochs"] = n_epochs
+
     if resume:
         print(f"Resuming from {resume}")
         model = PPO.load(resume, env=env)
+        # Apply scaled hyperparameters to the resumed model.
+        model.batch_size = ppo_kw["batch_size"]
+        model.n_epochs = ppo_kw["n_epochs"]
+        model.n_steps = ppo_kw["n_steps"]
+        # Trigger internal buffer reallocation for new n_steps/n_envs.
+        model._setup_model()
     else:
         model = PPO(
             "MultiInputPolicy",
             env,
             policy_kwargs=policy_kwargs,
             learning_rate=3e-4,
-            n_steps=2048,
-            batch_size=64,
-            n_epochs=10,
             gamma=0.99,
             gae_lambda=0.95,
             clip_range=0.2,
@@ -99,6 +152,7 @@ def train(
             verbose=1,
             device="auto",
             tensorboard_log=str(TB_LOG_DIR),
+            **ppo_kw,
         )
 
     # Eval env (single, for speed).
@@ -161,6 +215,18 @@ def main():
         default="doom_agent_ppo",
         help="Output checkpoint path (without .zip extension)",
     )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=None,
+        help="Override PPO batch size (default: auto-scaled from --envs)",
+    )
+    parser.add_argument(
+        "--n-epochs",
+        type=int,
+        default=None,
+        help="Override PPO epochs per update (default: auto-scaled from --envs)",
+    )
     args = parser.parse_args()
 
     obs_h = None
@@ -177,6 +243,8 @@ def main():
         obs_h=obs_h,
         obs_w=obs_w,
         output=args.output,
+        batch_size=args.batch_size,
+        n_epochs=args.n_epochs,
     )
 
 

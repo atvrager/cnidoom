@@ -133,36 +133,54 @@ scripts/train_curriculum.sh --model v2
 
 ### Curriculum
 
-The curriculum progressively builds skills across 8 phases (~10M total
-steps), bridging the gap from simple arenas to the full E1M1 level:
+13-phase curriculum (~40M steps) designed for large-scale training
+(128 envs, scales down to 8):
 
-| Phase | Scenario | Steps | Skill |
-|-------|----------|-------|-------|
-| 1 | `basic` | 500K | Single room, 1 enemy &mdash; aim + shoot |
-| 2 | `deadly_corridor` | 750K | Hallway with enemies &mdash; move + dodge |
-| 3 | `defend_the_center` | 750K | 360&deg; arena &mdash; spatial awareness |
-| 4 | `my_way_home` | 500K | Maze, no enemies &mdash; navigation |
-| 5 | `health_gathering_supreme` | 750K | Poison floor + health packs &mdash; resource awareness |
-| 6 | `defend_the_line` | 1M | Approaching enemy waves &mdash; sustained combat |
-| 7 | `e1m1_short` | 2M | E1M1, 1-min episodes &mdash; learn start area |
-| 8 | `e1m1_agent` | 4M | E1M1, 2-min episodes &mdash; full exploration |
+```bash
+scripts/train_curriculum.sh --model v2 --envs 128
+```
 
-Each phase resumes from the previous checkpoint. Resume from any phase
-with `--from N`. Monitor with TensorBoard: `tensorboard --logdir tb_doom/`.
+| | Phase | Steps | Skill |
+|-|-------|-------|-------|
+| **Arena** | 1. basic | 500K | Aim + shoot |
+| | 2. deadly_corridor | 750K | Move + dodge |
+| | 3. defend_the_center | 750K | 360&deg; awareness |
+| **Navigation** | 4. my_way_home | 500K | Maze (no enemies) |
+| | 5. health_gathering_supreme | 750K | Resource awareness |
+| | 6. defend_the_line | 1M | Sustained combat |
+| **E1M1 ramp** | 7. E1M1 skill 1 | 3M | Easy &mdash; learn layout |
+| | 8. E1M1 skill 3 | 5M | Medium &mdash; full combat |
+| | 9. E1M1 skill 5 | 5M | Nightmare &mdash; respawns |
+| **Multi-map** | 10. E1M2 | 5M | Tight corridors |
+| | 11. E1M3 | 5M | Open areas |
+| | 12. E1M4 | 5M | Dense combat |
+| **Final** | 13. E1M1 polish | 8M | Consolidation |
+
+Resume from any phase with `--from N`. Monitor with TensorBoard:
+`tensorboard --logdir tb_doom/`.
 
 ### PPO hyperparameters
+
+PPO hyperparameters auto-scale with `--envs` to keep gradient steps
+per update roughly constant:
+
+| Parameter | 8 envs | 128 envs |
+|-----------|--------|----------|
+| n_steps | 2048 | 2048 |
+| Batch size | 64 | 2048 |
+| Epochs | 10 | 4 |
+| Buffer/update | 16K | 262K |
+| Grad steps/update | ~2,560 | ~512 |
+
+Fixed parameters:
 
 | Parameter | Value |
 |-----------|-------|
 | Learning rate | 3&times;10<sup>-4</sup> |
-| n_steps | 2048 |
-| Batch size | 64 |
-| Epochs | 10 |
 | Gamma | 0.99 |
 | GAE lambda | 0.95 |
 | Clip range | 0.2 |
 | Entropy coef | 0.01 |
-| Parallel envs | 8 |
 
 ### Reward shaping
 
