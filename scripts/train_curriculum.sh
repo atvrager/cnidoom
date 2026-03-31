@@ -1,19 +1,25 @@
 #!/usr/bin/env bash
 # Train the Doom agent through the full curriculum.
 #
-# Phases (from doom-agent-project.md):
-#   1. basic          — single room, 1 enemy     — 500K steps  — aim + shoot
-#   2. deadly_corridor — hallway, multiple enemies — 1M steps   — move + shoot + dodge
-#   3. defend_the_center — 360° enemies           — 1M steps   — spatial awareness
-#   4. E1M1 full level                            — 2.5M steps — navigation + combat
+# Phases:
+#   1. basic                   — single room, 1 enemy      —  500K  — aim + shoot
+#   2. deadly_corridor         — hallway, enemies           —  750K  — move + shoot + dodge
+#   3. defend_the_center       — 360° arena                 —  750K  — spatial awareness
+#   4. my_way_home             — maze, no enemies           —  500K  — navigation
+#   5. health_gathering_supreme — poison floor, health packs —  750K  — resource awareness
+#   6. defend_the_line         — waves of enemies           —    1M  — sustained combat
+#   7. E1M1 short (1 min)     — starting area               —    2M  — E1M1 warmup
+#   8. E1M1 full  (2 min)     — full level                  —    4M  — navigation + combat
+#
+# Total: ~10.25M steps  (old curriculum: 5M)
 #
 # Each phase resumes from the previous phase's checkpoint.
-# Final model is saved to doom_agent_ppo.zip.
+# Final model is saved to doom_agent_{version}_ppo.zip.
 #
 # Usage:
-#   scripts/train_curriculum.sh                        # baseline, full curriculum
-#   scripts/train_curriculum.sh --model v2             # V2 model
-#   scripts/train_curriculum.sh --model v2 --from 3    # V2, resume from phase 3
+#   scripts/train_curriculum.sh                        # V2, full curriculum
+#   scripts/train_curriculum.sh --model baseline       # baseline model
+#   scripts/train_curriculum.sh --model v2 --from 5    # V2, resume from phase 5
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -66,24 +72,52 @@ run_phase() {
         $resume_flag
 }
 
+# Phase 1: Learn to aim and shoot (single room, one enemy)
 if [[ "$START_PHASE" -le 1 ]]; then
     run_phase 1 "$SCENARIOS_DIR/basic.cfg" 500000 \
         "basic — learn to aim + shoot"
 fi
 
+# Phase 2: Move, shoot, dodge in a hallway
 if [[ "$START_PHASE" -le 2 ]]; then
-    run_phase 2 "$SCENARIOS_DIR/deadly_corridor.cfg" 1000000 \
+    run_phase 2 "$SCENARIOS_DIR/deadly_corridor.cfg" 750000 \
         "deadly_corridor — move + shoot + dodge"
 fi
 
+# Phase 3: 360° spatial awareness in an arena
 if [[ "$START_PHASE" -le 3 ]]; then
-    run_phase 3 "$SCENARIOS_DIR/defend_the_center.cfg" 1000000 \
+    run_phase 3 "$SCENARIOS_DIR/defend_the_center.cfg" 750000 \
         "defend_the_center — spatial awareness"
 fi
 
+# Phase 4: Pure navigation — find the goal in a maze (no enemies)
 if [[ "$START_PHASE" -le 4 ]]; then
-    run_phase 4 "$SCENARIOS_DIR/e1m1_agent.cfg" 2500000 \
-        "E1M1 full level — navigation + combat"
+    run_phase 4 "$SCENARIOS_DIR/my_way_home.cfg" 500000 \
+        "my_way_home — maze navigation"
+fi
+
+# Phase 5: Survive poison floor by collecting health packs
+if [[ "$START_PHASE" -le 5 ]]; then
+    run_phase 5 "$SCENARIOS_DIR/health_gathering_supreme.cfg" 750000 \
+        "health_gathering_supreme — resource awareness"
+fi
+
+# Phase 6: Sustained combat against waves of approaching enemies
+if [[ "$START_PHASE" -le 6 ]]; then
+    run_phase 6 "$SCENARIOS_DIR/defend_the_line.cfg" 1000000 \
+        "defend_the_line — sustained combat"
+fi
+
+# Phase 7: E1M1 warmup — short episodes (1 min) to learn the start area
+if [[ "$START_PHASE" -le 7 ]]; then
+    run_phase 7 "$SCENARIOS_DIR/e1m1_short.cfg" 2000000 \
+        "E1M1 short — learn starting area"
+fi
+
+# Phase 8: E1M1 full — longer episodes (2 min) for deep exploration
+if [[ "$START_PHASE" -le 8 ]]; then
+    run_phase 8 "$SCENARIOS_DIR/e1m1_agent.cfg" 4000000 \
+        "E1M1 full — navigation + combat"
 fi
 
 echo ""

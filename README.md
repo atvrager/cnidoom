@@ -133,18 +133,22 @@ scripts/train_curriculum.sh --model v2
 
 ### Curriculum
 
-The curriculum progressively increases difficulty across 4 phases
-(2.5M total steps):
+The curriculum progressively builds skills across 8 phases (~10M total
+steps), bridging the gap from simple arenas to the full E1M1 level:
 
 | Phase | Scenario | Steps | Skill |
 |-------|----------|-------|-------|
-| 1 | `basic.cfg` | 500K | Single room, 1 enemy &mdash; learn to aim and shoot |
-| 2 | `deadly_corridor.cfg` | 1M | Hallway with enemies &mdash; move, shoot, dodge |
-| 3 | `defend_the_center.cfg` | 1M | 360&deg; arena &mdash; spatial awareness |
-| 4 | `e1m1_agent.cfg` | 2.5M | Full E1M1 &mdash; navigation + combat |
+| 1 | `basic` | 500K | Single room, 1 enemy &mdash; aim + shoot |
+| 2 | `deadly_corridor` | 750K | Hallway with enemies &mdash; move + dodge |
+| 3 | `defend_the_center` | 750K | 360&deg; arena &mdash; spatial awareness |
+| 4 | `my_way_home` | 500K | Maze, no enemies &mdash; navigation |
+| 5 | `health_gathering_supreme` | 750K | Poison floor + health packs &mdash; resource awareness |
+| 6 | `defend_the_line` | 1M | Approaching enemy waves &mdash; sustained combat |
+| 7 | `e1m1_short` | 2M | E1M1, 1-min episodes &mdash; learn start area |
+| 8 | `e1m1_agent` | 4M | E1M1, 2-min episodes &mdash; full exploration |
 
-Each phase resumes from the previous checkpoint. Monitor with
-TensorBoard: `tensorboard --logdir tb_doom/`.
+Each phase resumes from the previous checkpoint. Resume from any phase
+with `--from N`. Monitor with TensorBoard: `tensorboard --logdir tb_doom/`.
 
 ### PPO hyperparameters
 
