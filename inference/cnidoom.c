@@ -17,9 +17,11 @@
 #include "doomkeys.h"
 
 /* Access engine internals for the game state vector. */
+
 #include "d_player.h"
 #include "doomstat.h" /* players[], consoleplayer */
 
+#include <stdbool.h>
 /* ------------------------------------------------------------------ */
 /* Global config (set by cnidoom_run, read by platform defaults)      */
 /* ------------------------------------------------------------------ */
@@ -106,6 +108,7 @@ void DG_Init(void) {
   agent_init();
 }
 
+#define STARTUP_GRACE_PERIOD 100
 void DG_DrawFrame(void) {
   /* Display via platform callback. */
   cnidoom_draw(DG_ScreenBuffer, DOOMGENERIC_RESX, DOOMGENERIC_RESY);
@@ -122,16 +125,25 @@ void DG_DrawFrame(void) {
     fps_frame_count = 0;
     fps_last_time = now;
   }
+  /*
+   * SAFE START GATE:
+   * Only allow inference if we are past the grace period
+   * AND we are in a real level (not a demo playback).
+   */
+  bool is_real_gameplay = (gamestate == GS_LEVEL && !demoplayback);
 
-  /* Auto-start: mash Enter during title/demo/intermission screens. */
-  if (gamestate != GS_LEVEL) {
-    static int autostart_cooldown = 0;
-    if (++autostart_cooldown >= 15) {
-      key_queue_push(KEY_ENTER, 1);
-      key_queue_push(KEY_ENTER, 0);
-      autostart_cooldown = 0;
+  if (total_frames < STARTUP_GRACE_PERIOD || !is_real_gameplay) {
+    /* Mash Enter to clear title screens and skip demos.
+     * We hold the key for 5 frames to ensure it's registered. */
+    static int autostart_timer = 0;
+    autostart_timer++;
+    if (autostart_timer == 15) {
+      key_queue_push(KEY_ENTER, 1);  // Press
+    } else if (autostart_timer >= 20) {
+      key_queue_push(KEY_ENTER, 0);  // Release
+      autostart_timer = 0;
     }
-    return;
+    return;  // SHUT DOWN INFERENCE FOR THIS FRAME
   }
 
   /* Run agent inference at the configured interval. */
