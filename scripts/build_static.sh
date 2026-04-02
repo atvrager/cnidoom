@@ -129,6 +129,8 @@ if [[ "$TARGET" == "x86" ]]; then
 fi
 
 cmake -B "$BUILD_DIR" -S inference \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_FLAGS_RELEASE="-O2 -fno-strict-aliasing -fno-tree-vectorize -fno-builtin -DNDEBUG" \
     -DDOOM_AGENT_STATIC=ON \
     -DDOOM_AGENT_KERNEL_TARGET="$KERNEL_TARGET" \
     -DDOOM_AGENT_MODEL="$TFLITE" \
